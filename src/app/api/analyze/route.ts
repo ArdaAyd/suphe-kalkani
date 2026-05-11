@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { orchestrator } from "@/lib/agents/orchestrator";
+import { checkRateLimit } from "@/lib/utils/rateLimit";
 
 async function fileToBase64(file: File) {
   const arrayBuffer = await file.arrayBuffer();
@@ -10,6 +11,22 @@ async function fileToBase64(file: File) {
 
 export async function POST(request: NextRequest) {
   try {
+    const ip =
+      request.headers.get("x-forwarded-for")?.split(",")[0] ??
+      request.headers.get("x-real-ip") ??
+      "local-user";
+
+    const rateLimit = checkRateLimit(ip);
+
+    if (!rateLimit.allowed) {
+      return NextResponse.json(
+        {
+          error: "Çok fazla analiz isteği gönderildi. Lütfen biraz sonra tekrar deneyin.",
+        },
+        { status: 429 }
+      );
+    }
+    
     const contentType = request.headers.get("content-type") || "";
 
     let text = "";
