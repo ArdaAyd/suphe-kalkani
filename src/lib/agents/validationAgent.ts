@@ -1,5 +1,4 @@
 import {
-  calculateBrandSpoofRisk,
   calculateIbanRisk,
   calculateUrgencyRisk,
   calculateUrlRisk,
@@ -16,7 +15,15 @@ export async function validationAgent(data: ExtractionResult) {
   const urlRisk = calculateUrlRisk(data.urls);
   const ibanRisk = calculateIbanRisk(data.ibans);
   const urgencyRisk = calculateUrgencyRisk(data.urgencyPhrases);
-  const brandSpoofRisk = calculateBrandSpoofRisk(data.brandNames, data.urls);
+  const hasBrand = data.brandNames.length > 0;
+  const hasUrl = data.urls.length > 0;
+  const hasUrgency = data.urgencyPhrases.length > 0;
+
+const brandSpoofRisk =
+  hasBrand && hasUrl ? 60 : 0;
+
+const impersonationRisk =
+  hasBrand && hasUrgency ? 40 : 0;
 
   const redFlags: string[] = [];
 
@@ -36,11 +43,16 @@ export async function validationAgent(data: ExtractionResult) {
     redFlags.push("Marka taklidi şüphesi mevcut.");
   }
 
+  if (impersonationRisk > 0) {
+    redFlags.push("Marka adıyla aciliyet baskısı birlikte kullanılıyor.");
+  }
+
   const result = {
     urlRisk,
     ibanRisk,
     urgencyRisk,
-    brandSpoofRisk,
+    brandSpoofRisk:
+      brandSpoofRisk + impersonationRisk,
     redFlags,
   };
 

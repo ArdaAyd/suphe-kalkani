@@ -2,7 +2,13 @@ import { extractionAgent } from "./extractionAgent";
 import { validationAgent } from "./validationAgent";
 import { judgementAgent } from "./judgementAgent";
 
-export async function orchestrator(input: string) {
+type OrchestratorInput = {
+  text: string;
+  imageBase64?: string;
+  imageMimeType?: string;
+};
+
+export async function orchestrator(input: OrchestratorInput) {
   console.log("Orchestrator başladı");
 
   const extractionResult = await extractionAgent(input);

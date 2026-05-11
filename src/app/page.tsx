@@ -3,6 +3,15 @@
 import { useState } from "react";
 
 type AnalyzeResponse = {
+  extraction: {
+    textSummary: string;
+    urls: string[];
+    ibans: string[];
+    phones: string[];
+    brandNames: string[];
+    claims: string[];
+    urgencyPhrases: string[];
+  };
   report: {
     finalScore: number;
     riskLevel: "LOW" | "MEDIUM" | "HIGH";
@@ -15,35 +24,39 @@ type AnalyzeResponse = {
 
 export default function Home() {
   const [input, setInput] = useState("");
+  const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
 
   async function handleAnalyze() {
-    if (!input.trim()) return;
+  if (!input.trim() && !file) return;
 
-    setLoading(true);
-    setResult(null);
+  setLoading(true);
+  setResult(null);
 
-    try {
-      const response = await fetch("/api/analyze", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          input,
-        }),
-      });
+  try {
+    const formData = new FormData();
 
-      const data = await response.json();
+    formData.append("input", input);
 
-      setResult(data);
-    } catch (error) {
-      console.error(error);
-    } finally {
-      setLoading(false);
+    if (file) {
+      formData.append("file", file);
     }
+
+    const response = await fetch("/api/analyze", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+
+    setResult(data);
+  } catch (error) {
+    console.error(error);
+  } finally {
+    setLoading(false);
   }
+}
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-6">
@@ -62,6 +75,27 @@ export default function Home() {
           placeholder="Mesajı, kampanya metnini veya şüpheli içeriği buraya yapıştırın..."
           className="w-full h-40 rounded-2xl bg-zinc-800 border border-zinc-700 p-4 text-white outline-none resize-none"
         />
+        <div className="mt-4 rounded-2xl border border-dashed border-zinc-700 bg-zinc-800 p-4">
+          <label className="block text-sm font-medium text-zinc-300 mb-2">
+            Görsel yükle
+          </label>
+
+          <input
+            type="file"
+            accept="image/*"
+            onChange={(e) => {
+              const selectedFile = e.target.files?.[0] ?? null;
+              setFile(selectedFile);
+            }}
+            className="block w-full text-sm text-zinc-400 file:mr-4 file:rounded-xl file:border-0 file:bg-red-500 file:px-4 file:py-2 file:text-white hover:file:bg-red-600"
+          />
+
+          {file && (
+            <p className="mt-3 text-sm text-zinc-400">
+              Seçilen dosya: {file.name}
+            </p>
+          )}
+        </div>
 
         <button
           onClick={handleAnalyze}
@@ -107,6 +141,56 @@ export default function Home() {
               <p className="text-5xl font-bold mt-2">
                 {result.report.finalScore}/100
               </p>
+            </div>
+
+            <div className="mt-6">
+              <p className="text-zinc-400 mb-3">
+                AI Tespit Detayları
+              </p>
+
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-zinc-700 p-3">
+                  <p className="text-sm text-zinc-400">Markalar</p>
+
+                  <p className="mt-1">
+                    {result.extraction.brandNames.length > 0
+                      ? result.extraction.brandNames.join(", ")
+                      : "Tespit edilmedi"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-zinc-700 p-3">
+                  <p className="text-sm text-zinc-400">URL</p>
+
+                  <p className="mt-1 break-all">
+                    {result.extraction.urls.length > 0
+                      ? result.extraction.urls.join(", ")
+                      : "Tespit edilmedi"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-zinc-700 p-3">
+                  <p className="text-sm text-zinc-400">IBAN</p>
+
+                  <p className="mt-1 break-all">
+                    {result.extraction.ibans.length > 0
+                      ? result.extraction.ibans.join(", ")
+                      : "Tespit edilmedi"}
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-zinc-700 p-3">
+                  <p className="text-sm text-zinc-400">
+                    Aciliyet İfadeleri
+                  </p>
+
+                  <p className="mt-1">
+                    {result.extraction.urgencyPhrases.length > 0
+                      ? result.extraction.urgencyPhrases.join(", ")
+                      : "Tespit edilmedi"}
+                  </p>
+                </div>
+              </div>
             </div>
 
             <div className="mt-6">

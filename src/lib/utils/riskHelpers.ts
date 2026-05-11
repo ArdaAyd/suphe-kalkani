@@ -17,9 +17,11 @@ export function calculateFinalScore(scores: {
     scores.brandSpoofRisk * 0.1;
 
   const bonus =
-    scores.urlRisk > 70 && scores.ibanRisk > 70
-      ? 15
-      : 0;
+    scores.urlRisk > 70 && scores.brandSpoofRisk > 50
+        ? 20
+        : scores.urlRisk > 70 && scores.ibanRisk > 70
+        ? 15
+        : 0;
 
   return clampScore(weightedScore + bonus);
 }
