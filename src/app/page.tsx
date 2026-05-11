@@ -29,6 +29,12 @@ export default function Home() {
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
   const [error, setError] = useState("");
 
+  const loadingSteps = [
+    "İçerik çözümleniyor...",
+    "Risk sinyalleri kontrol ediliyor...",
+    "Ajanlar raporu hazırlıyor...",
+  ];
+
   async function handleAnalyze() {
   if (!input.trim() && !file) return;
 
@@ -114,13 +120,25 @@ export default function Home() {
         </button>
 
         {loading && (
-            <div className="mt-6 bg-zinc-800 rounded-2xl p-4 border border-zinc-700">
-              <p className="animate-pulse text-zinc-300">
-                İçerik analiz ediliyor...
+            <div className="mt-6 rounded-2xl border border-zinc-700 bg-zinc-800 p-4">
+              <p className="mb-3 font-semibold text-zinc-200">
+                Analiz süreci başladı
               </p>
+
+              <div className="space-y-3">
+                {loadingSteps.map((step, index) => (
+                  <div
+                    key={index}
+                    className="flex items-center gap-3 text-sm text-zinc-300"
+                  >
+                    <span className="h-2.5 w-2.5 rounded-full bg-red-500 animate-pulse" />
+                    {step}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
-
+          
           {error && (
             <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-red-200">
               {error}
