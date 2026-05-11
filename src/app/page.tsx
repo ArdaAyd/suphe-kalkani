@@ -1,65 +1,160 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+
+type AnalyzeResponse = {
+  report: {
+    finalScore: number;
+    riskLevel: "LOW" | "MEDIUM" | "HIGH";
+    summary: string;
+    redFlags: string[];
+    recommendedActions: string[];
+    confidence: number;
+  };
+};
 
 export default function Home() {
+  const [input, setInput] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [result, setResult] = useState<AnalyzeResponse | null>(null);
+
+  async function handleAnalyze() {
+    if (!input.trim()) return;
+
+    setLoading(true);
+    setResult(null);
+
+    try {
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          input,
+        }),
+      });
+
+      const data = await response.json();
+
+      setResult(data);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-6">
+      <div className="w-full max-w-3xl bg-zinc-900 rounded-3xl p-8 shadow-2xl border border-zinc-800">
+        <h1 className="text-4xl font-bold mb-2">
+          ŞüpheKalkanı
+        </h1>
+
+        <p className="text-zinc-400 mb-8">
+          Dolandırıcılık risklerini agentic AI ile analiz edin.
+        </p>
+
+        <textarea
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          placeholder="Mesajı, kampanya metnini veya şüpheli içeriği buraya yapıştırın..."
+          className="w-full h-40 rounded-2xl bg-zinc-800 border border-zinc-700 p-4 text-white outline-none resize-none"
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
-    </div>
+
+        <button
+          onClick={handleAnalyze}
+          disabled={loading}
+          className="mt-4 w-full rounded-2xl bg-red-500 hover:bg-red-600 transition-all py-4 font-semibold text-lg disabled:opacity-50"
+        >
+          {loading ? "Analiz ediliyor..." : "Analiz Et"}
+        </button>
+
+        {loading && (
+          <div className="mt-6 bg-zinc-800 rounded-2xl p-4 border border-zinc-700">
+            <p className="animate-pulse text-zinc-300">
+              İçerik analiz ediliyor...
+            </p>
+          </div>
+        )}
+
+        {result && (
+          <div className="mt-8 rounded-2xl bg-zinc-800 border border-zinc-700 p-6">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold">
+                Risk Raporu
+              </h2>
+
+              <span
+                className={`px-4 py-2 rounded-full text-sm font-semibold ${
+                  result.report.riskLevel === "HIGH"
+                    ? "bg-red-500"
+                    : result.report.riskLevel === "MEDIUM"
+                    ? "bg-yellow-500"
+                    : "bg-green-500"
+                }`}
+              >
+                {result.report.riskLevel}
+              </span>
+            </div>
+
+            <div className="mt-6">
+              <p className="text-zinc-400">
+                Risk Skoru
+              </p>
+
+              <p className="text-5xl font-bold mt-2">
+                {result.report.finalScore}/100
+              </p>
+            </div>
+
+            <div className="mt-6">
+              <p className="text-zinc-400 mb-2">
+                Özet
+              </p>
+
+              <p>{result.report.summary}</p>
+            </div>
+
+            <div className="mt-6">
+              <p className="text-zinc-400 mb-2">
+                Kırmızı Bayraklar
+              </p>
+
+              <ul className="space-y-2">
+                {result.report.redFlags.map((flag, index) => (
+                  <li
+                    key={index}
+                    className="bg-red-500/10 border border-red-500/30 rounded-xl p-3"
+                  >
+                    {flag}
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div className="mt-6">
+              <p className="text-zinc-400 mb-2">
+                Önerilen Aksiyonlar
+              </p>
+
+              <ul className="space-y-2">
+                {result.report.recommendedActions.map(
+                  (action, index) => (
+                    <li
+                      key={index}
+                      className="bg-zinc-700 rounded-xl p-3"
+                    >
+                      {action}
+                    </li>
+                  )
+                )}
+              </ul>
+            </div>
+          </div>
+        )}
+      </div>
+    </main>
   );
 }

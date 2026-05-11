@@ -1,28 +1,48 @@
-export async function validationAgent(data: {
-  textSummary: string;
-  urls: string[];
-  ibans: string[];
-  phones: string[];
-  brandNames: string[];
-  claims: string[];
-  urgencyPhrases: string[];
-}) {
+import {
+  calculateBrandSpoofRisk,
+  calculateIbanRisk,
+  calculateUrgencyRisk,
+  calculateUrlRisk,
+} from "@/lib/utils/riskHelpers";
+
+import {
+  ValidationSchema,
+  type ExtractionResult,
+} from "@/lib/schemas/reportSchema";
+
+export async function validationAgent(data: ExtractionResult) {
   console.log("Validation Agent çalıştı");
+
+  const urlRisk = calculateUrlRisk(data.urls);
+  const ibanRisk = calculateIbanRisk(data.ibans);
+  const urgencyRisk = calculateUrgencyRisk(data.urgencyPhrases);
+  const brandSpoofRisk = calculateBrandSpoofRisk(data.brandNames, data.urls);
 
   const redFlags: string[] = [];
 
-  let urgencyRisk = 0;
-
-  if (data.urgencyPhrases.length > 0) {
-    urgencyRisk = 70;
-    redFlags.push("Aciliyet dili tespit edildi");
+  if (urlRisk > 50) {
+    redFlags.push("Şüpheli bağlantı tespit edildi.");
   }
 
-  return {
-    urlRisk: 0,
-    ibanRisk: 0,
+  if (ibanRisk > 50) {
+    redFlags.push("IBAN paylaşımı tespit edildi.");
+  }
+
+  if (urgencyRisk > 40) {
+    redFlags.push("Aciliyet dili kullanılıyor.");
+  }
+
+  if (brandSpoofRisk > 40) {
+    redFlags.push("Marka taklidi şüphesi mevcut.");
+  }
+
+  const result = {
+    urlRisk,
+    ibanRisk,
     urgencyRisk,
-    brandSpoofRisk: 0,
+    brandSpoofRisk,
     redFlags,
   };
+
+  return ValidationSchema.parse(result);
 }

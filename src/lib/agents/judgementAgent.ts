@@ -1,39 +1,51 @@
-type ValidationResult = {
-  urlRisk: number;
-  ibanRisk: number;
-  urgencyRisk: number;
-  brandSpoofRisk: number;
-  redFlags: string[];
-};
+import {
+  calculateFinalScore,
+  getRiskLevel,
+} from "@/lib/utils/riskHelpers";
+
+import {
+  FinalReportSchema,
+  type ValidationResult,
+} from "@/lib/schemas/reportSchema";
 
 export async function judgementAgent(
   validation: ValidationResult
 ) {
   console.log("Judgement Agent çalıştı");
 
-  const totalRisk =
-    validation.urlRisk +
-    validation.ibanRisk +
-    validation.urgencyRisk +
-    validation.brandSpoofRisk;
+  const finalScore = calculateFinalScore({
+    urlRisk: validation.urlRisk,
+    ibanRisk: validation.ibanRisk,
+    urgencyRisk: validation.urgencyRisk,
+    brandSpoofRisk: validation.brandSpoofRisk,
+  });
 
-  let riskLevel = "LOW";
+  const riskLevel = getRiskLevel(finalScore);
 
-  if (totalRisk > 150) {
-    riskLevel = "HIGH";
-  } else if (totalRisk > 50) {
-    riskLevel = "MEDIUM";
+  let summary = "İçerik güvenli görünüyor.";
+
+  if (riskLevel === "MEDIUM") {
+    summary =
+      "İçerikte dikkat edilmesi gereken bazı riskler bulundu.";
   }
 
-  return {
-    finalScore: totalRisk,
+  if (riskLevel === "HIGH") {
+    summary =
+      "Yüksek riskli dolandırıcılık belirtileri tespit edildi.";
+  }
+
+  const result = {
+    finalScore,
     riskLevel,
-    summary: "İçerik analiz edildi.",
+    summary,
     redFlags: validation.redFlags,
     recommendedActions: [
-      "Linke tıklamayın",
-      "Ödeme yapmadan önce doğrulama yapın",
+      "Bağlantılara dikkat edin.",
+      "Kişisel bilgi paylaşmayın.",
+      "Ödeme öncesi resmi doğrulama yapın.",
     ],
-    confidence: 85,
+    confidence: 88,
   };
+
+  return FinalReportSchema.parse(result);
 }

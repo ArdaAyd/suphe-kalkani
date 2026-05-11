@@ -1,13 +1,23 @@
+import { ExtractionSchema } from "@/lib/schemas/reportSchema";
+import {
+  detectIbans,
+  detectPhones,
+  detectUrgencyPhrases,
+  detectUrls,
+} from "@/lib/utils/riskHelpers";
+
 export async function extractionAgent(input: string) {
   console.log("Extraction Agent çalıştı");
 
-  return {
+  const result = {
     textSummary: input,
-    urls: [],
-    ibans: [],
-    phones: [],
+    urls: detectUrls(input),
+    ibans: detectIbans(input),
+    phones: detectPhones(input),
     brandNames: [],
-    claims: [],
-    urgencyPhrases: [],
+    claims: [input],
+    urgencyPhrases: detectUrgencyPhrases(input),
   };
+
+  return ExtractionSchema.parse(result);
 }
