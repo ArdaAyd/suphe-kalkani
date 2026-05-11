@@ -27,12 +27,14 @@ export default function Home() {
   const [file, setFile] = useState<File | null>(null);
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
+  const [error, setError] = useState("");
 
   async function handleAnalyze() {
   if (!input.trim() && !file) return;
 
   setLoading(true);
   setResult(null);
+  setError("");
 
   try {
     const formData = new FormData();
@@ -50,9 +52,15 @@ export default function Home() {
 
     const data = await response.json();
 
+    if (!response.ok) {
+      setError(data.error || "Analiz sırasında bir hata oluştu.");
+      return;
+    }
+    
     setResult(data);
   } catch (error) {
     console.error(error);
+    setError("Sunucuya bağlanırken bir hata oluştu.");
   } finally {
     setLoading(false);
   }
@@ -106,12 +114,18 @@ export default function Home() {
         </button>
 
         {loading && (
-          <div className="mt-6 bg-zinc-800 rounded-2xl p-4 border border-zinc-700">
-            <p className="animate-pulse text-zinc-300">
-              İçerik analiz ediliyor...
-            </p>
-          </div>
-        )}
+            <div className="mt-6 bg-zinc-800 rounded-2xl p-4 border border-zinc-700">
+              <p className="animate-pulse text-zinc-300">
+                İçerik analiz ediliyor...
+              </p>
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-red-200">
+              {error}
+            </div>
+          )}
 
         {result && (
           <div className="mt-8 rounded-2xl bg-zinc-800 border border-zinc-700 p-6">
