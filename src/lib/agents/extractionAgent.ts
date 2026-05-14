@@ -36,39 +36,30 @@ export async function extractionAgent(input: ExtractionAgentInput) {
   console.log("Extraction Agent çalıştı");
 
   try {
-    const contents: Array<
-      | string
-      | {
-          inlineData: {
-            mimeType: string;
-            data: string;
-          };
-        }
-    > = [];
-
-    contents.push(`
-Aşağıdaki şüpheli içeriği analiz et.
+    const prompt = `Aşağıdaki şüpheli içeriği analiz et.
 
 Sadece geçerli JSON döndür.
 Markdown kullanma.
 
 JSON formatı:
 {
-  "textSummary": "kısa özet",
-  "urls": [],
-  "ibans": [],
-  "phones": [],
-  "brandNames": [],
-  "claims": [],
-  "urgencyPhrases": []
+  "textSummary": "kısa özet (1-2 cümle)",
+  "urls": ["tespit edilen URL'ler"],
+  "ibans": ["tespit edilen IBAN'lar"],
+  "phones": ["tespit edilen telefon numaraları"],
+  "brandNames": ["tespit edilen marka veya kurum adları"],
+  "claims": ["öne sürülen iddialar veya teklifler"],
+  "urgencyPhrases": ["aciliyet yaratan ifadeler"]
 }
 
-Kullanıcı metni:
-${input.text}
-`);
+${input.text ? `Kullanıcı metni:\n${input.text}` : "Görsel üzerinden analiz yap."}`;
+
+    type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
+
+    const parts: Part[] = [{ text: prompt }];
 
     if (input.imageBase64 && input.imageMimeType) {
-      contents.push({
+      parts.push({
         inlineData: {
           mimeType: input.imageMimeType,
           data: input.imageBase64,
@@ -78,7 +69,7 @@ ${input.text}
 
     const response = await ai.models.generateContent({
       model: "gemini-2.5-flash",
-      contents,
+      contents: [{ role: "user", parts }],
     });
 
     const text = response.text;

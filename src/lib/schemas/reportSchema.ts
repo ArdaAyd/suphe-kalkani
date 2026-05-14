@@ -18,6 +18,7 @@ export const ValidationSchema = z.object({
   urgencyRisk: z.number().min(0).max(100),
   brandSpoofRisk: z.number().min(0).max(100),
   redFlags: z.array(z.string()),
+  reasoning: z.string().optional(),
 });
 
 export const FinalReportSchema = z.object({

@@ -1,4 +1,96 @@
-// import type { RiskLevel } from "@/lib/types/risk";
+// Bilinen Türk kurum ve markaların resmi domain listesi
+const KNOWN_OFFICIAL_DOMAINS: Record<string, string[]> = {
+  // Bankalar
+  ziraatbank: ["ziraatbank.com.tr"],
+  garanti: ["garantibbva.com.tr"],
+  garantibbva: ["garantibbva.com.tr"],
+  isbank: ["isbank.com.tr"],
+  akbank: ["akbank.com"],
+  yapikredi: ["yapikredi.com.tr"],
+  halkbank: ["halkbank.com.tr"],
+  vakifbank: ["vakifbank.com.tr"],
+  denizbank: ["denizbank.com"],
+  finansbank: ["qnbfinansbank.com"],
+  qnb: ["qnbfinansbank.com"],
+  enpara: ["enpara.com"],
+  // Kargo
+  ptt: ["ptt.gov.tr"],
+  aras: ["arasshipping.com", "araskargo.com.tr"],
+  yurtici: ["yurticikargo.com"],
+  mng: ["mngkargo.com.tr"],
+  ups: ["ups.com"],
+  dhl: ["dhl.com"],
+  // E-ticaret
+  trendyol: ["trendyol.com"],
+  hepsiburada: ["hepsiburada.com"],
+  n11: ["n11.com"],
+  amazon: ["amazon.com.tr", "amazon.com"],
+  // Telekom
+  turkcell: ["turkcell.com.tr"],
+  vodafone: ["vodafone.com.tr"],
+  turktelekom: ["turktelekom.com.tr"],
+  // Devlet
+  edevlet: ["turkiye.gov.tr", "e-devlet.gov.tr"],
+  sgk: ["sgk.gov.tr"],
+  gib: ["gib.gov.tr"],
+};
+
+function extractHostname(url: string): string {
+  try {
+    const withProtocol = url.startsWith("http") ? url : `https://${url}`;
+    return new URL(withProtocol).hostname.toLowerCase();
+  } catch {
+    return url.toLowerCase().split("/")[0];
+  }
+}
+
+export function checkDomainSpoof(brandNames: string[], urls: string[]): number {
+  if (brandNames.length === 0 || urls.length === 0) return 0;
+
+  let maxRisk = 0;
+
+  for (const url of urls) {
+    const hostname = extractHostname(url);
+
+    for (const brandName of brandNames) {
+      const brand = brandName.toLowerCase().replace(/[\s.]/g, "");
+
+      // Bilinen kurum kontrolü: brand keyword'ü hem brand adıyla hem URL'yle eşleşiyor mu?
+      for (const [key, officialDomains] of Object.entries(KNOWN_OFFICIAL_DOMAINS)) {
+        const isBrandRelated = brand.includes(key) || key.includes(brand);
+        const isBrandInUrl = hostname.includes(key);
+
+        if (isBrandRelated && isBrandInUrl) {
+          const isOfficialDomain = officialDomains.some(
+            (od) => hostname === od || hostname.endsWith("." + od)
+          );
+          if (!isOfficialDomain) {
+            // Bilinen kurumun adı URL'de var ama resmi domain değil → typosquatting
+            maxRisk = Math.max(maxRisk, 90);
+          }
+        }
+      }
+
+      // Genel kontrol: brand keyword URL'de var + şüpheli domain pattern
+      if (brand.length >= 4 && hostname.includes(brand)) {
+        const isOfficialTld =
+          hostname.endsWith(".com.tr") ||
+          hostname.endsWith(".gov.tr") ||
+          hostname.endsWith(".org.tr") ||
+          hostname.endsWith(".edu.tr");
+
+        const hasSuspiciousPattern =
+          hostname.includes("-") || hostname.split(".").length > 3;
+
+        if (!isOfficialTld && hasSuspiciousPattern) {
+          maxRisk = Math.max(maxRisk, 75);
+        }
+      }
+    }
+  }
+
+  return maxRisk;
+}
 
 export function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)));
@@ -11,17 +103,22 @@ export function calculateFinalScore(scores: {
   brandSpoofRisk: number;
 }): number {
   const weightedScore =
-    scores.urlRisk * 0.4 +
-    scores.ibanRisk * 0.3 +
-    scores.urgencyRisk * 0.2 +
-    scores.brandSpoofRisk * 0.1;
+    scores.urlRisk * 0.25 +
+    scores.ibanRisk * 0.30 +
+    scores.urgencyRisk * 0.15 +
+    scores.brandSpoofRisk * 0.30;
 
+  // Multi-signal combos elevate score beyond linear weighting
   const bonus =
-    scores.urlRisk > 70 && scores.brandSpoofRisk > 50
-        ? 20
-        : scores.urlRisk > 70 && scores.ibanRisk > 70
-        ? 15
-        : 0;
+    scores.brandSpoofRisk >= 80 && scores.urlRisk > 0
+      ? 25  // brand impersonation + URL = phishing
+      : scores.ibanRisk > 50 && scores.urgencyRisk > 30
+      ? 20  // IBAN + urgency = payment pressure scam
+      : scores.urlRisk > 70 && scores.brandSpoofRisk > 50
+      ? 20
+      : scores.urlRisk > 70 && scores.ibanRisk > 70
+      ? 15
+      : 0;
 
   return clampScore(weightedScore + bonus);
 }

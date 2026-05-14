@@ -15,7 +15,7 @@ export async function orchestrator(input: OrchestratorInput) {
 
   const validationResult = await validationAgent(extractionResult);
 
-  const judgementResult = await judgementAgent(validationResult);
+  const judgementResult = await judgementAgent(validationResult, extractionResult);
 
   console.log("Orchestrator tamamlandı");
 
