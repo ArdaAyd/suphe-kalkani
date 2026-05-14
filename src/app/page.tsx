@@ -51,7 +51,9 @@ const RISK_COLORS: Record<"LOW" | "MEDIUM" | "HIGH", string> = {
 export default function Home() {
   const [input, setInput] = useState("");
   const [file, setFile] = useState<File | null>(null);
+  const [audioFile, setAudioFile] = useState<File | null>(null);
   const [imagePreview, setImagePreview] = useState<string | null>(null);
+  const [audioPreview, setAudioPreview] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
   const [result, setResult] = useState<AnalyzeResponse | null>(null);
@@ -68,6 +70,13 @@ export default function Home() {
     return () => clearInterval(interval);
   }, [loading]);
 
+  // Ses dosyası için URL temizliği (memory leak önlemi)
+  useEffect(() => {
+    return () => {
+      if (audioPreview) URL.revokeObjectURL(audioPreview);
+    };
+  }, [audioPreview]);
+
   function handleFileChange(selectedFile: File | null) {
     setFile(selectedFile);
     if (selectedFile) {
@@ -79,49 +88,57 @@ export default function Home() {
     }
   }
 
-  async function handleAnalyze() {
-  if (!input.trim() && !file) return;
-
-  setLoading(true);
-  setResult(null);
-  setError("");
-
-  try {
-    const formData = new FormData();
-
-    formData.append("input", input);
-
-    if (file) {
-      formData.append("file", file);
+  function handleAudioChange(selectedFile: File | null) {
+    if (audioPreview) URL.revokeObjectURL(audioPreview);
+    setAudioFile(selectedFile);
+    if (selectedFile) {
+      setAudioPreview(URL.createObjectURL(selectedFile));
+    } else {
+      setAudioPreview(null);
     }
+  }
 
-    const response = await fetch("/api/analyze", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await response.json();
-
-    if (!response.ok) {
-      setError(data.error || "Analiz sırasında bir hata oluştu.");
+  async function handleAnalyze() {
+    setError("");
+    if (!input.trim() && !file && !audioFile) {
+      setError("Lütfen metin, görsel veya ses dosyası ekleyin.");
       return;
     }
-    
-    setResult(data);
-  } catch (error) {
-    console.error(error);
-    setError("Sunucuya bağlanırken bir hata oluştu.");
-  } finally {
-    setLoading(false);
+
+    setLoading(true);
+    setResult(null);
+
+    try {
+      const formData = new FormData();
+      formData.append("input", input);
+      if (file) formData.append("file", file);
+      if (audioFile) formData.append("audio", audioFile);
+
+      const response = await fetch("/api/analyze", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || "Analiz sırasında bir hata oluştu.");
+        return;
+      }
+
+      setResult(data);
+    } catch (err) {
+      console.error(err);
+      setError("Sunucuya bağlanırken bir hata oluştu.");
+    } finally {
+      setLoading(false);
+    }
   }
-}
 
   return (
     <main className="min-h-screen bg-zinc-950 text-white flex items-center justify-center p-6">
       <div className="w-full max-w-3xl bg-zinc-900 rounded-3xl p-8 shadow-2xl border border-zinc-800">
-        <h1 className="text-4xl font-bold mb-2">
-          ŞüpheKalkanı
-        </h1>
+        <h1 className="text-4xl font-bold mb-2">ŞüpheKalkanı</h1>
 
         <p className="text-zinc-400 mb-8">
           Dolandırıcılık risklerini agentic AI ile analiz edin.
@@ -133,6 +150,8 @@ export default function Home() {
           placeholder="Mesajı, kampanya metnini veya şüpheli içeriği buraya yapıştırın..."
           className="w-full h-40 rounded-2xl bg-zinc-800 border border-zinc-700 p-4 text-white outline-none resize-none"
         />
+
+        {/* Görsel yükle */}
         <div className="mt-4 rounded-2xl border border-dashed border-zinc-700 bg-zinc-800 p-4">
           <label className="block text-sm font-medium text-zinc-300 mb-2">
             Görsel yükle
@@ -152,7 +171,46 @@ export default function Home() {
                 alt="Yüklenen görsel"
                 className="max-h-48 rounded-xl object-contain border border-zinc-600"
               />
-              <p className="mt-1 text-xs text-zinc-500">{file?.name}</p>
+              <div className="mt-1 flex items-center justify-between">
+                <p className="text-xs text-zinc-500">{file?.name}</p>
+                <button
+                  type="button"
+                  onClick={() => handleFileChange(null)}
+                  className="text-xs text-zinc-400 hover:text-red-400"
+                >
+                  Kaldır
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+
+        {/* Ses yükle */}
+        <div className="mt-4 rounded-2xl border border-dashed border-zinc-700 bg-zinc-800 p-4">
+          <label className="block text-sm font-medium text-zinc-300 mb-2">
+            Ses yükle
+          </label>
+
+          <input
+            type="file"
+            accept="audio/*"
+            onChange={(e) => handleAudioChange(e.target.files?.[0] ?? null)}
+            className="block w-full text-sm text-zinc-400 file:mr-4 file:rounded-xl file:border-0 file:bg-red-500 file:px-4 file:py-2 file:text-white hover:file:bg-red-600"
+          />
+
+          {audioPreview && (
+            <div className="mt-3">
+              <audio controls src={audioPreview} className="w-full" />
+              <div className="mt-1 flex items-center justify-between">
+                <p className="text-xs text-zinc-500">{audioFile?.name}</p>
+                <button
+                  type="button"
+                  onClick={() => handleAudioChange(null)}
+                  className="text-xs text-zinc-400 hover:text-red-400"
+                >
+                  Kaldır
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -199,12 +257,12 @@ export default function Home() {
             </div>
           </div>
         )}
-          
-          {error && (
-            <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-red-200">
-              {error}
-            </div>
-          )}
+
+        {error && (
+          <div className="mt-6 rounded-2xl border border-red-500/40 bg-red-500/10 p-4 text-red-200">
+            {error}
+          </div>
+        )}
 
         {result && (
           <div className="mt-8 rounded-2xl bg-zinc-800 border border-zinc-700 p-6">
@@ -220,7 +278,10 @@ export default function Home() {
             <div className="mt-6 flex items-end gap-6">
               <div>
                 <p className="text-zinc-400 text-sm">Risk Skoru</p>
-                <p className="text-5xl font-bold mt-1">{result.report.finalScore}<span className="text-2xl text-zinc-500">/100</span></p>
+                <p className="text-5xl font-bold mt-1">
+                  {result.report.finalScore}
+                  <span className="text-2xl text-zinc-500">/100</span>
+                </p>
               </div>
               <div className="mb-1">
                 <p className="text-zinc-400 text-sm">AI Güveni</p>
@@ -234,7 +295,7 @@ export default function Home() {
               <p className="text-white">{result.report.summary}</p>
             </div>
 
-            {/* Validation scores — Validation Agent output */}
+            {/* Validation scores */}
             <div className="mt-6">
               <p className="text-zinc-400 text-sm mb-3">Validation Agent — Risk Boyutları</p>
               <div className="space-y-3">
@@ -271,7 +332,7 @@ export default function Home() {
               )}
             </div>
 
-            {/* Extraction details — Extraction Agent output */}
+            {/* Extraction details */}
             <div className="mt-6">
               <p className="text-zinc-400 text-sm mb-3">Extraction Agent — Tespit Edilen Veriler</p>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -299,10 +360,7 @@ export default function Home() {
             </div>
 
             <div className="mt-6">
-              <p className="text-zinc-400 mb-2">
-                Kırmızı Bayraklar
-              </p>
-
+              <p className="text-zinc-400 mb-2">Kırmızı Bayraklar</p>
               <ul className="space-y-2">
                 {result.report.redFlags.map((flag, index) => (
                   <li
@@ -316,21 +374,13 @@ export default function Home() {
             </div>
 
             <div className="mt-6">
-              <p className="text-zinc-400 mb-2">
-                Önerilen Aksiyonlar
-              </p>
-
+              <p className="text-zinc-400 mb-2">Önerilen Aksiyonlar</p>
               <ul className="space-y-2">
-                {result.report.recommendedActions.map(
-                  (action, index) => (
-                    <li
-                      key={index}
-                      className="bg-zinc-700 rounded-xl p-3"
-                    >
-                      {action}
-                    </li>
-                  )
-                )}
+                {result.report.recommendedActions.map((action, index) => (
+                  <li key={index} className="bg-zinc-700 rounded-xl p-3">
+                    {action}
+                  </li>
+                ))}
               </ul>
             </div>
           </div>
