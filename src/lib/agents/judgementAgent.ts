@@ -19,9 +19,14 @@ async function geminiJudgement(
   extraction: ExtractionResult,
   validation: ValidationResult,
   finalScore: number,
-  riskLevel: "LOW" | "MEDIUM" | "HIGH"
+  riskLevel: "LOW" | "MEDIUM" | "HIGH",
+  isAudioTranscript = false
 ): Promise<GeminiJudgementOutput> {
-  const prompt = `Sen bir siber güvenlik ve finansal dolandırıcılık uzmanısın. Aşağıdaki analiz sonuçlarına göre kullanıcıya Türkçe, kişiselleştirilmiş ve uygulanabilir bir rapor yaz.
+  const sourceNote = isAudioTranscript
+    ? "\n⚠️ Kaynak: Ses kaydı transkribi (sesli dolandırıcılık / vishing). Önerilen aksiyonlarda telefon görüşmesine özel uyarılar ver."
+    : "";
+
+  const prompt = `Sen bir siber güvenlik ve finansal dolandırıcılık uzmanısın. Aşağıdaki analiz sonuçlarına göre kullanıcıya Türkçe, kişiselleştirilmiş ve uygulanabilir bir rapor yaz.${sourceNote}
 
 Risk Skoru: ${finalScore}/100
 Risk Seviyesi: ${riskLevel}
@@ -72,12 +77,14 @@ Sadece JSON döndür, markdown kullanma:
 
 function fallbackSummary(
   riskLevel: "LOW" | "MEDIUM" | "HIGH",
-  extraction: ExtractionResult
+  extraction: ExtractionResult,
+  isAudioTranscript = false
 ): string {
+  const audioNote = isAudioTranscript ? " Bu içerik bir telefon görüşmesinden alınmıştır." : "";
   if (riskLevel === "LOW") {
     return extraction.urls.length > 0
-      ? "İçerik genel olarak güvenli görünüyor. Tespit edilen bağlantıları yine de dikkatli inceleyin."
-      : "İçerik güvenli görünüyor.";
+      ? `İçerik genel olarak güvenli görünüyor. Tespit edilen bağlantıları yine de dikkatli inceleyin.${audioNote}`
+      : `İçerik güvenli görünüyor.${audioNote}`;
   }
   if (riskLevel === "MEDIUM") {
     const parts = ["İçerikte dikkat gerektiren riskler tespit edildi."];
@@ -91,11 +98,12 @@ function fallbackSummary(
   return parts.join(" ");
 }
 
-function fallbackActions(extraction: ExtractionResult): string[] {
+function fallbackActions(extraction: ExtractionResult, isAudioTranscript = false): string[] {
   const actions: string[] = [];
   if (extraction.ibans.length > 0) actions.push("Bu IBAN'a ödeme yapmadan önce kurumun resmi hattını arayarak doğrulayın.");
   if (extraction.urls.length > 0) actions.push("Bağlantılara tıklamayın; adresi tarayıcınıza elle yazın.");
   if (extraction.brandNames.length > 0) actions.push(`"${extraction.brandNames[0]}" markasının resmi müşteri hizmetleriyle iletişime geçin.`);
+  if (isAudioTranscript) actions.push("Sizi arayan kişiyi resmi hat üzerinden geri arayarak kimliğini doğrulayın.");
   if (actions.length === 0) actions.push("İçeriği resmi kanallar üzerinden doğrulayın.", "Kişisel bilgi paylaşmayın.");
   return actions;
 }
@@ -113,7 +121,8 @@ function calculateConfidence(extraction: ExtractionResult): number {
 
 export async function judgementAgent(
   validation: ValidationResult,
-  extraction: ExtractionResult
+  extraction: ExtractionResult,
+  isAudioTranscript = false
 ) {
   console.log("Judgement Agent çalıştı");
 
@@ -131,13 +140,13 @@ export async function judgementAgent(
   let recommendedActions: string[];
 
   try {
-    const gemini = await geminiJudgement(extraction, validation, finalScore, riskLevel);
+    const gemini = await geminiJudgement(extraction, validation, finalScore, riskLevel, isAudioTranscript);
     summary = gemini.summary;
     recommendedActions = gemini.recommendedActions;
   } catch (error) {
     console.error("Gemini judgement başarısız, fallback kullanılıyor:", error);
-    summary = fallbackSummary(riskLevel, extraction);
-    recommendedActions = fallbackActions(extraction);
+    summary = fallbackSummary(riskLevel, extraction, isAudioTranscript);
+    recommendedActions = fallbackActions(extraction, isAudioTranscript);
   }
 
   if (riskLevel === "HIGH") {

@@ -35,9 +35,16 @@ async function geminiReasoning(
     ibanRisk: number;
     urgencyRisk: number;
     brandSpoofRisk: number;
-  }
+  },
+  isAudioTranscript = false
 ): Promise<GeminiValidationOutput> {
+  const sourceContext = isAudioTranscript
+    ? "⚠️ Bu içerik bir ses kaydının transkribidir. Sesli dolandırıcılık (vishing) kalıplarına dikkat et: baskı kurma, sahte yetkili kimliği, telefon/hesap numarası talepleri, acele kararlar."
+    : "Bu içerik bir metin veya görsel analizden elde edilmiştir.";
+
   const prompt = `Sen bir siber güvenlik uzmanısın. Şüpheli içerikten çıkarılan veriler ve deterministik araçların ürettiği ön risk skorları aşağıda verilmiştir.
+
+${sourceContext}
 
 Çıkarılan Veriler:
 - URL'ler: ${data.urls.length > 0 ? data.urls.join(", ") : "yok"}
@@ -94,7 +101,7 @@ Sadece JSON döndür, markdown kullanma:
   };
 }
 
-export async function validationAgent(data: ExtractionResult) {
+export async function validationAgent(data: ExtractionResult, isAudioTranscript = false) {
   console.log("Validation Agent çalıştı");
 
   // Step 1: Deterministik araçlar — hızlı ve güvenilir temel ölçüm
@@ -130,7 +137,7 @@ export async function validationAgent(data: ExtractionResult) {
   const redFlags: string[] = [];
 
   try {
-    const gemini = await geminiReasoning(data, preliminary);
+    const gemini = await geminiReasoning(data, preliminary, isAudioTranscript);
 
     // Gemini skoru ile deterministik skoru karşılaştır, yükseği al
     // Gemini bağlamsal olarak daha iyi değerlendirirse skoru yükseltebilir,

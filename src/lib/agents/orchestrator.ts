@@ -36,9 +36,10 @@ export async function orchestrator(input: OrchestratorInput) {
       const audioTextExtraction = await extractionAgent({
         ...input,
         text: audioResult.transcript,
+        isAudioTranscript: true,
       });
-      const audioValidation = await validationAgent(audioTextExtraction);
-      const audioJudgement = await judgementAgent(audioValidation, audioTextExtraction);
+      const audioValidation = await validationAgent(audioTextExtraction, true);
+      const audioJudgement = await judgementAgent(audioValidation, audioTextExtraction, true);
 
       // Ana extraction sonuçlarını audio bulguları ile zenginleştir (deduplicate)
       extractionResult.urls.push(...audioTextExtraction.urls.filter((u: string) => !extractionResult.urls.includes(u)));

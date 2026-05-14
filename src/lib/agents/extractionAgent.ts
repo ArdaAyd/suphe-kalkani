@@ -11,6 +11,9 @@ type ExtractionAgentInput = {
   text: string;
   imageBase64?: string;
   imageMimeType?: string;
+  audioPath?: string;
+  audioMimeType?: string;
+  isAudioTranscript?: boolean; // ses transkriptinden geldiğini belirtir
 };
 
 function cleanGeminiJson(text: string) {
@@ -52,7 +55,7 @@ JSON formatı:
   "urgencyPhrases": ["aciliyet yaratan ifadeler"]
 }
 
-${input.text ? `Kullanıcı metni:\n${input.text}` : "Görsel üzerinden analiz yap."}`;
+${input.text ? (input.isAudioTranscript ? `Ses kaydı transkribi — sesli dolandırıcılık kalıplarına dikkat et (baskı, sahte yetkili, acele karar):\n${input.text}` : `Kullanıcı metni:\n${input.text}`) : "Görsel üzerinden analiz yap."}`;
 
     type Part = { text: string } | { inlineData: { mimeType: string; data: string } };
 
