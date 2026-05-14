@@ -28,6 +28,11 @@ type AnalyzeResponse = {
     recommendedActions: string[];
     confidence: number;
   };
+  audio?: {
+    transcript: string;
+    language: string;
+    riskObservations: string[];
+  };
 };
 
 const LOADING_STEPS = [
@@ -383,6 +388,35 @@ export default function Home() {
                 ))}
               </ul>
             </div>
+
+            {/* Ses Analizi — sadece ses yüklendiyse göster */}
+            {result.audio && (
+              <div className="mt-6 rounded-xl border border-zinc-700 bg-zinc-700/30 p-4">
+                <p className="text-zinc-400 text-sm mb-3">Audio Agent — Ses Kaydı Analizi</p>
+
+                {result.audio.transcript && (
+                  <div className="mb-3">
+                    <p className="text-xs text-zinc-400 mb-1">Transkript</p>
+                    <p className="text-sm text-zinc-200 bg-zinc-800 rounded-xl p-3 leading-relaxed">
+                      {result.audio.transcript}
+                    </p>
+                  </div>
+                )}
+
+                {result.audio.riskObservations.length > 0 && (
+                  <div>
+                    <p className="text-xs text-zinc-400 mb-2">Sesli Dolandırıcılık Tespitleri</p>
+                    <ul className="space-y-1">
+                      {result.audio.riskObservations.map((obs, i) => (
+                        <li key={i} className="text-sm bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+                          {obs}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </div>
