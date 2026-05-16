@@ -96,29 +96,53 @@ export function clampScore(score: number): number {
   return Math.max(0, Math.min(100, Math.round(score)));
 }
 
-export function calculateFinalScore(scores: {
-  urlRisk: number;
-  ibanRisk: number;
-  urgencyRisk: number;
-  brandSpoofRisk: number;
-}): number {
-  const weightedScore =
-    scores.urlRisk * 0.25 +
-    scores.ibanRisk * 0.30 +
-    scores.urgencyRisk * 0.15 +
-    scores.brandSpoofRisk * 0.30;
+export function calculateFinalScore(
+  scores: {
+    urlRisk: number;
+    ibanRisk: number;
+    urgencyRisk: number;
+    brandSpoofRisk: number;
+  },
+  isAudio = false
+): number {
+  let weightedScore: number;
+  let bonus: number;
 
-  // Multi-signal combos elevate score beyond linear weighting
-  const bonus =
-    scores.brandSpoofRisk >= 80 && scores.urlRisk > 0
-      ? 25  // brand impersonation + URL = phishing
-      : scores.ibanRisk > 50 && scores.urgencyRisk > 30
-      ? 20  // IBAN + urgency = payment pressure scam
-      : scores.urlRisk > 70 && scores.brandSpoofRisk > 50
-      ? 20
-      : scores.urlRisk > 70 && scores.ibanRisk > 70
-      ? 15
-      : 0;
+  if (isAudio) {
+    // Vishing (sesli dolandırıcılık): URL görünmez, urgency + link talebi birincil sinyal
+    weightedScore =
+      scores.urlRisk * 0.20 +
+      scores.ibanRisk * 0.25 +
+      scores.urgencyRisk * 0.40 +
+      scores.brandSpoofRisk * 0.15;
+
+    bonus =
+      scores.urgencyRisk > 40 && scores.urlRisk > 0
+        ? 25  // urgency + link talebi = klasik vishing combo
+        : scores.urgencyRisk > 60
+        ? 15  // yüksek urgency tek başına da önemli
+        : scores.ibanRisk > 50
+        ? 20  // IBAN diktate = ödeme dolandırıcılığı
+        : 0;
+  } else {
+    // Metin / görsel: URL ve brand spoof ağırlıklı
+    weightedScore =
+      scores.urlRisk * 0.25 +
+      scores.ibanRisk * 0.30 +
+      scores.urgencyRisk * 0.15 +
+      scores.brandSpoofRisk * 0.30;
+
+    bonus =
+      scores.brandSpoofRisk >= 80 && scores.urlRisk > 0
+        ? 25  // brand impersonation + URL = phishing
+        : scores.ibanRisk > 50 && scores.urgencyRisk > 30
+        ? 20  // IBAN + urgency = ödeme baskısı
+        : scores.urlRisk > 70 && scores.brandSpoofRisk > 50
+        ? 20
+        : scores.urlRisk > 70 && scores.ibanRisk > 70
+        ? 15
+        : 0;
+  }
 
   return clampScore(weightedScore + bonus);
 }

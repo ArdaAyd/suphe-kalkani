@@ -11,6 +11,7 @@ function cleanJson(text: string) {
 }
 
 type GeminiJudgementOutput = {
+  headline: string;
   summary: string;
   recommendedActions: string[];
 };
@@ -41,12 +42,17 @@ Extraction Agent Tespitleri:
 
 Kırmızı Bayraklar: ${validation.redFlags.length > 0 ? validation.redFlags.join("; ") : "yok"}
 
+HEDEF KİTLE: Yaşlı veya teknolojiden anlamayan kullanıcılar. Sıradan insanlar.
+
 Kurallar:
-- summary: Tek paragraf, spesifik ol — "mesaj" veya "içerik" değil, tespit edilen gerçek detayları (marka adı, URL, ifade) kullan. ${riskLevel === "HIGH" ? "Güçlü ve net uyarı ver." : riskLevel === "MEDIUM" ? "Dikkatli ama panik yaratmayan bir ton kullan." : "Sakin ve bilgilendirici ol."}
-- recommendedActions: En fazla 4 madde. Genel değil, bu spesifik duruma özel aksiyonlar. Uygulama adımı net olsun. Türk kurumlarının resmi domain adlarını bil: ziraatbank.com.tr, garantibbva.com.tr, isbank.com.tr, e-devlet.gov.tr vb.
+- headline: TEK CÜMLE, en fazla 90 karakter. Çok basit Türkçe. Teknik terim YOK (phishing, vishing, oltalama vb. yazma). Verdict net olsun: ne olduğunu söyle.
+  ${riskLevel === "HIGH" ? "Örnek: \"Bu mesaj büyük olasılıkla bir dolandırıcılık girişimi.\"" : riskLevel === "MEDIUM" ? "Örnek: \"Bu mesajda şüpheli işaretler var, dikkatli olun.\"" : "Örnek: \"Bu içerik şu an için güvenli görünüyor.\""}
+- summary: 2-3 cümle. Spesifik detaylar (marka, URL, IBAN, ifade) içersin. Yine sade dil. ${riskLevel === "HIGH" ? "Güçlü ve net uyarı ver." : riskLevel === "MEDIUM" ? "Dikkatli ama panik yaratmayan bir ton kullan." : "Sakin ve bilgilendirici ol."}
+- recommendedActions: En fazla 4 madde. EYLEM odaklı, emir kipinde. Kısa (10-20 kelime). Genel tavsiye değil, bu duruma özel. Türk kurumlarının resmi domain adlarını bil: ziraatbank.com.tr, garantibbva.com.tr, isbank.com.tr, e-devlet.gov.tr vb.
 
 Sadece JSON döndür, markdown kullanma:
 {
+  "headline": "...",
   "summary": "...",
   "recommendedActions": ["...", "...", "..."]
 }`;
@@ -62,6 +68,10 @@ Sadece JSON döndür, markdown kullanma:
 
   const parsed = JSON.parse(cleanJson(text));
 
+  const headline = typeof parsed.headline === "string" && parsed.headline.trim()
+    ? parsed.headline.trim()
+    : null;
+
   const summary = typeof parsed.summary === "string" && parsed.summary.trim()
     ? parsed.summary.trim()
     : null;
@@ -70,9 +80,17 @@ Sadece JSON döndür, markdown kullanma:
     ? parsed.recommendedActions.filter((a: unknown) => typeof a === "string")
     : [];
 
-  if (!summary || actions.length === 0) throw new Error("Gemini eksik veri döndürdü");
+  if (!headline || !summary || actions.length === 0) throw new Error("Gemini eksik veri döndürdü");
 
-  return { summary, recommendedActions: actions };
+  return { headline, summary, recommendedActions: actions };
+}
+
+function fallbackHeadline(
+  riskLevel: "LOW" | "MEDIUM" | "HIGH"
+): string {
+  if (riskLevel === "LOW") return "Bu içerik şu an için güvenli görünüyor.";
+  if (riskLevel === "MEDIUM") return "Bu içerikte şüpheli işaretler var, dikkatli olun.";
+  return "Bu içerik büyük olasılıkla bir dolandırıcılık girişimi.";
 }
 
 function fallbackSummary(
@@ -131,20 +149,23 @@ export async function judgementAgent(
     ibanRisk: validation.ibanRisk,
     urgencyRisk: validation.urgencyRisk,
     brandSpoofRisk: validation.brandSpoofRisk,
-  });
+  }, isAudioTranscript);
 
   const riskLevel = getRiskLevel(finalScore);
   const confidence = calculateConfidence(extraction);
 
+  let headline: string;
   let summary: string;
   let recommendedActions: string[];
 
   try {
     const gemini = await geminiJudgement(extraction, validation, finalScore, riskLevel, isAudioTranscript);
+    headline = gemini.headline;
     summary = gemini.summary;
     recommendedActions = gemini.recommendedActions;
   } catch (error) {
     console.error("Gemini judgement başarısız, fallback kullanılıyor:", error);
+    headline = fallbackHeadline(riskLevel);
     summary = fallbackSummary(riskLevel, extraction, isAudioTranscript);
     recommendedActions = fallbackActions(extraction, isAudioTranscript);
   }
@@ -159,6 +180,7 @@ export async function judgementAgent(
   return FinalReportSchema.parse({
     finalScore,
     riskLevel,
+    headline,
     summary,
     redFlags: validation.redFlags,
     recommendedActions,

@@ -48,6 +48,8 @@ export async function POST(request: NextRequest) {
     let imageMimeType: string | undefined;
     let audioPath: string | undefined;
     let audioMimeType: string | undefined;
+    let videoPath: string | undefined;
+    let videoMimeType: string | undefined;
 
     if (contentType.includes("multipart/form-data")) {
       const formData = await request.formData();
@@ -55,6 +57,7 @@ export async function POST(request: NextRequest) {
       const input = formData.get("input");
       const file = formData.get("file");
       const audioFile = formData.get("audio");
+      const videoFile = formData.get("video");
 
       if (typeof input === "string") {
         text = input;
@@ -80,6 +83,22 @@ export async function POST(request: NextRequest) {
         audioMimeType = audioFile.type || (ext ? extMimeMap[ext] : undefined) || "audio/mpeg";
       }
 
+      if (videoFile instanceof File) {
+        videoPath = await saveTempFile(videoFile);
+        const ext = videoFile.name.split(".").pop()?.toLowerCase();
+        const videoMimeMap: Record<string, string> = {
+          mp4: "video/mp4",
+          mov: "video/quicktime",
+          avi: "video/x-msvideo",
+          mkv: "video/x-matroska",
+          webm: "video/webm",
+          wmv: "video/x-ms-wmv",
+          flv: "video/x-flv",
+          "3gp": "video/3gpp",
+        };
+        videoMimeType = videoFile.type || (ext ? videoMimeMap[ext] : undefined) || "video/mp4";
+      }
+
       console.log("[api/analyze] payload", {
         textLength: text.trim().length,
         image: file instanceof File
@@ -88,13 +107,16 @@ export async function POST(request: NextRequest) {
         audio: audioFile instanceof File
           ? { name: audioFile.name, type: audioFile.type, size: audioFile.size }
           : null,
+        video: videoFile instanceof File
+          ? { name: videoFile.name, type: videoFile.type, size: videoFile.size }
+          : null,
       });
     } else {
       const body = await request.json();
       text = body.input ?? "";
     }
 
-    if (!text.trim() && !imageBase64 && !audioPath) {
+    if (!text.trim() && !imageBase64 && !audioPath && !videoPath) {
       return NextResponse.json(
         { error: "Analiz edilecek içerik gönderilmedi." },
         { status: 400 }
@@ -107,11 +129,16 @@ export async function POST(request: NextRequest) {
       imageMimeType,
       audioPath,
       audioMimeType,
+      videoPath,
+      videoMimeType,
     });
 
-    // İşlemden sonra geçici audio dosyasını sil
+    // İşlemden sonra geçici dosyaları sil
     if (audioPath) {
       fs.promises.unlink(audioPath).catch(() => {});
+    }
+    if (videoPath) {
+      fs.promises.unlink(videoPath).catch(() => {});
     }
 
     return NextResponse.json(result);

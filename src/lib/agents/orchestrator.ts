@@ -2,6 +2,7 @@ import { extractionAgent } from "./extractionAgent";
 import { validationAgent } from "./validationAgent";
 import { judgementAgent } from "./judgementAgent";
 import { AudioAnalysisAgent, type AudioAnalysisOutput } from "./audioAnalysisAgent";
+import { VideoAnalysisAgent, type VideoAnalysisOutput } from "./videoAnalysisAgent";
 
 type OrchestratorInput = {
   text: string;
@@ -9,6 +10,8 @@ type OrchestratorInput = {
   imageMimeType?: string;
   audioPath?: string;
   audioMimeType?: string;
+  videoPath?: string;
+  videoMimeType?: string;
 };
 
 export async function orchestrator(input: OrchestratorInput) {
@@ -17,6 +20,7 @@ export async function orchestrator(input: OrchestratorInput) {
   const hasText = input.text.trim().length > 0;
   const hasImage = !!input.imageBase64;
   const hasAudio = !!input.audioPath;
+  const hasVideo = !!input.videoPath;
 
   // --- Ses analizi ---
   let audioAnalysis: AudioAnalysisOutput | null = null;
@@ -28,16 +32,28 @@ export async function orchestrator(input: OrchestratorInput) {
     console.log("Orchestrator: ses analizi tamamlandı, transcript uzunluğu:", audioAnalysis?.transcript?.length ?? 0);
   }
 
+  // --- Video analizi (ses track'i üzerinden) ---
+  let videoAnalysis: VideoAnalysisOutput | null = null;
+
+  if (hasVideo) {
+    console.log("Orchestrator: video ses analizi başladı");
+    const videoAgent = new VideoAnalysisAgent();
+    videoAnalysis = await videoAgent.analyze(input.videoPath!, input.videoMimeType);
+    console.log("Orchestrator: video ses analizi tamamlandı, transcript uzunluğu:", videoAnalysis?.transcript?.length ?? 0);
+  }
+
   // --- Ana text/image pipeline ---
-  // Eğer metin veya görsel varsa çalıştır.
-  // Ses varsa ama metin/görsel yoksa, transcript'i ana metin olarak kullan.
+  // Öncelik: metin > görsel > ses transkribi > video transkribi
   let pipelineText = hasText ? input.text : "";
   let isAudioTranscript = false;
 
-  if (!hasText && !hasImage && audioAnalysis?.transcript) {
-    pipelineText = audioAnalysis.transcript;
-    isAudioTranscript = true;
-    console.log("Orchestrator: ses transkribi ana pipeline'a aktarıldı");
+  if (!hasText && !hasImage) {
+    const transcript = audioAnalysis?.transcript || videoAnalysis?.transcript || "";
+    if (transcript) {
+      pipelineText = transcript;
+      isAudioTranscript = true;
+      console.log("Orchestrator: ses/video transkribi ana pipeline'a aktarıldı");
+    }
   }
 
   const extractionResult = await extractionAgent({
@@ -47,10 +63,15 @@ export async function orchestrator(input: OrchestratorInput) {
     isAudioTranscript,
   });
 
-  // Ses tespitlerini extraction sonucuna ekle (varsa)
-  if (audioAnalysis?.riskObservations && audioAnalysis.riskObservations.length > 0) {
+  // Ses/video tespitlerini extraction sonucuna ekle (varsa)
+  const mediaRiskObservations = [
+    ...(audioAnalysis?.riskObservations ?? []),
+    ...(videoAnalysis?.riskObservations ?? []),
+    ...(videoAnalysis?.visualObservations ?? []),
+  ];
+  if (mediaRiskObservations.length > 0) {
     extractionResult.urgencyPhrases.push(
-      ...audioAnalysis.riskObservations.filter(
+      ...mediaRiskObservations.filter(
         (obs) => !extractionResult.urgencyPhrases.includes(obs)
       )
     );
@@ -66,5 +87,6 @@ export async function orchestrator(input: OrchestratorInput) {
     validation: validationResult,
     report: judgementResult,
     ...(audioAnalysis ? { audio: audioAnalysis } : {}),
+    ...(videoAnalysis ? { video: videoAnalysis } : {}),
   };
 }

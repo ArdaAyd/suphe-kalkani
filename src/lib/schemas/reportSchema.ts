@@ -24,6 +24,7 @@ export const ValidationSchema = z.object({
 export const FinalReportSchema = z.object({
   finalScore: z.number().min(0).max(100),
   riskLevel: RiskLevelSchema,
+  headline: z.string(),
   summary: z.string(),
   redFlags: z.array(z.string()),
   recommendedActions: z.array(z.string()),

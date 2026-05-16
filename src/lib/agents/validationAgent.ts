@@ -156,6 +156,29 @@ export async function validationAgent(data: ExtractionResult, isAudioTranscript 
     console.error("Gemini validation reasoning başarısız, deterministik sonuç kullanılıyor:", error);
   }
 
+  // Ses kaydı özel kontrolü: link/tıklama talebi vishing belirtisi
+  if (isAudioTranscript) {
+    const allText = [
+      ...data.urgencyPhrases,
+      data.textSummary,
+    ].join(" ").toLowerCase();
+
+    const hasLinkRequest =
+      allText.includes("link") ||
+      allText.includes("tıkla") ||
+      allText.includes("tikla") ||
+      allText.includes("click") ||
+      allText.includes("bağlantı") ||
+      allText.includes("adrese git") ||
+      allText.includes("sms'teki") ||
+      allText.includes("gönderilen");
+
+    if (hasLinkRequest) {
+      finalRisks.urlRisk = Math.max(finalRisks.urlRisk, 70);
+      redFlags.push("Telefon görüşmesinde link tıklama talebi — sesli kimlik avı (vishing) belirtisi.");
+    }
+  }
+
   // Step 3: Deterministik red flag'ler
   if (finalRisks.urlRisk > 50) redFlags.push("Şüpheli veya resmi olmayan bağlantı tespit edildi.");
   if (finalRisks.ibanRisk > 50) redFlags.push("IBAN paylaşımı içeriyor — doğrudan ödeme talebi.");
