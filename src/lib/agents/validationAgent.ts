@@ -1,9 +1,13 @@
 import { ai } from "@/lib/gemini/client";
 import {
+  calculateEcommerceRisk,
   calculateIbanRisk,
   calculateUrgencyRisk,
   calculateUrlRisk,
   checkDomainSpoof,
+  detectFakeDiscountPhrases,
+  detectGiveawayPhrases,
+  detectPricingAnomalies,
 } from "@/lib/utils/riskHelpers";
 import {
   ValidationSchema,
@@ -22,6 +26,8 @@ type GeminiValidationOutput = {
   brandSpoofRisk: number;
   additionalRedFlags: string[];
   reasoning: string;
+  webSearchQueries: string[];
+  toolCalls: string[];
 };
 
 function cleanJson(text: string) {
@@ -59,6 +65,63 @@ async function geminiReasoningWithFunctionCalling(
     ? "⚠️ Bu içerik bir ses kaydının transkribidir. Sesli dolandırıcılık (vishing) kalıplarına dikkat et: baskı kurma, sahte yetkili kimliği, telefon/hesap numarası talepleri, acele kararlar."
     : "Bu içerik bir metin veya görsel analizden elde edilmiştir.";
 
+  // ─────────────────────────────────────────────
+  // FAZ 1: Google Search ile marka doğrulama
+  // (Sadece marka adı varsa ve gerekli görüyorsak)
+  // ─────────────────────────────────────────────
+  const webSearchQueries: string[] = [];
+  let brandVerificationNotes = "";
+
+  if (data.brandNames.length > 0) {
+    try {
+      const brandPrompt = `Aşağıdaki içerikte geçen markaları ve iddiaları Google üzerinden DOĞRULA.
+
+Markalar: ${data.brandNames.join(", ")}
+${data.urls.length > 0 ? `Mesajdaki URL'ler: ${data.urls.join(", ")}` : ""}
+İçerik özeti: ${data.textSummary}
+${data.claims.length > 0 ? `İddialar: ${data.claims.join("; ")}` : ""}
+
+Şunları araştır:
+1. Her marka için RESMİ web sitesini bul (örn: "[marka adı] resmi site").
+2. URL'lerdeki domain, markanın resmi domaini mi karşılaştır.
+3. İçerikteki kampanya/indirim/çekiliş iddiası gerçek mi (örn: "[marka] [kampanya] gerçek mi").
+
+Sadece düz metin yanıt ver (max 4 cümle). Şunu içersin:
+- Resmi domain(ler) ne?
+- URL eşleşiyor mu yoksa SAHTE mi?
+- Kampanya iddiası varsa: gerçek mi?`;
+
+      const brandResp = await ai.models.generateContent({
+        model: "gemini-2.5-flash",
+        contents: [{ role: "user", parts: [{ text: brandPrompt }] }],
+        config: {
+          tools: [{ googleSearch: {} }],
+        },
+      });
+
+      const groundingMeta = brandResp.candidates?.[0]?.groundingMetadata;
+      const queries = groundingMeta?.webSearchQueries ?? [];
+      webSearchQueries.push(...queries);
+      brandVerificationNotes = brandResp.text ?? "";
+
+      if (queries.length > 0) {
+        console.log(
+          `[ValidationAgent] Faz 1 — Google'da ${queries.length} arama yapıldı:`,
+          queries
+        );
+        console.log(
+          "[ValidationAgent] Marka doğrulama özeti:",
+          brandVerificationNotes.slice(0, 200)
+        );
+      }
+    } catch (err) {
+      console.error("[ValidationAgent] Faz 1 (Google Search) hata:", err);
+    }
+  }
+
+  // ─────────────────────────────────────────────
+  // FAZ 2: Function Calling ile detaylı analiz
+  // ─────────────────────────────────────────────
   const prompt = `Sen bir siber güvenlik uzmanısın. Şüpheli içerikten çıkarılan veriler ve deterministik araçların ürettiği ön risk skorları aşağıda verilmiştir.
 
 ${sourceContext}
@@ -76,28 +139,34 @@ Deterministik Araç Sonuçları (0-100):
 - Aciliyet Riski: ${preliminary.urgencyRisk}
 - Marka Taklidi Riski: ${preliminary.brandSpoofRisk}
 
+${brandVerificationNotes ? `Marka Doğrulama Bulguları (Google ile araştırıldı):\n${brandVerificationNotes}\n` : ""}
+
+Kullanabileceğin Araçlar:
+• check_domain_age(domain) → domainin RDAP üzerinden yaşını öğrenir
+• check_url_safety(url) → URL'in TLD/yapısal güvenlik analizini yapar
+• check_iban_validity(iban) → IBAN'ın matematiksel geçerliliğini doğrular
+
 Görevin:
-1. Eğer URL varsa: her URL için önce check_domain_age, sonra check_url_safety araçlarını çağır.
-2. Eğer IBAN varsa: her IBAN için check_iban_validity aracını çağır.
-3. Araç sonuçlarını ve deterministik verileri birleştirerek aşağıdaki JSON'u döndür.
+1. Eğer URL varsa: her URL için check_domain_age VE check_url_safety çağır.
+2. Eğer IBAN varsa: her IBAN için check_iban_validity çağır.
+3. Marka doğrulama bulgularını ve araç sonuçlarını birleştir.
 
-Özellikle dikkat et:
-- URL'ler tespit edilen markalar/kurumların resmi domainleriyle uyuşuyor mu?
-  (Türk bankaları: ziraatbank.com.tr, garantibbva.com.tr, isbank.com.tr, akbank.com,
-   yapikredi.com.tr, halkbank.com.tr, vakifbank.com.tr)
-  (Kargo: ptt.gov.tr, arasshipping.com, yurticikargo.com, mngkargo.com.tr)
-  (Devlet: e-devlet.gov.tr, turkiye.gov.tr)
-- Marka adı URL içinde var ama domain farklıysa (örn: ziraatbank-giris.com) bu güçlü phishing sinyalidir.
-- Yeni domain + bilinen marka kombinasyonu = çok yüksek risk.
+Bilinen Türk markaları:
+- Bankalar: ziraatbank.com.tr, garantibbva.com.tr, isbank.com.tr, akbank.com, yapikredi.com.tr
+- Kargo: ptt.gov.tr, arasshipping.com, yurticikargo.com, mngkargo.com.tr
+- E-ticaret: trendyol.com, hepsiburada.com, n11.com, amazon.com.tr
+- Devlet: e-devlet.gov.tr, turkiye.gov.tr
 
-Araç sonuçlarını aldıktan sonra sadece JSON döndür, markdown kullanma:
+ÇOK ÖNEMLİ — Çıktı formatı:
+Araçları çağırdıktan sonra, SADECE aşağıdaki JSON'u döndür. Markdown veya açıklama EKLEME:
+
 {
   "urlRisk": <0-100>,
   "ibanRisk": <0-100>,
   "urgencyRisk": <0-100>,
   "brandSpoofRisk": <0-100>,
   "additionalRedFlags": ["tespit ettiğin ek kırmızı bayraklar, Türkçe"],
-  "reasoning": "1-2 cümle Türkçe analiz özeti (araç bulgularını dahil et)"
+  "reasoning": "1-2 cümle Türkçe analiz özeti (araç + Google arama bulgularını dahil et)"
 }`;
 
   const initialContents: Content[] = [
@@ -115,12 +184,16 @@ Araç sonuçlarını aldıktan sonra sadece JSON döndür, markdown kullanma:
   });
 
   const functionCalls = response1.functionCalls;
+  const toolCallNames: string[] = [];
   let finalText: string | undefined;
 
   if (functionCalls && functionCalls.length > 0) {
     console.log(
-      `[ValidationAgent] Gemini ${functionCalls.length} araç çağırdı:`,
+      `[ValidationAgent] Faz 2 — Gemini ${functionCalls.length} araç çağırdı:`,
       functionCalls.map((c) => `${c.name}(${JSON.stringify(c.args)})`)
+    );
+    toolCallNames.push(
+      ...functionCalls.map((c) => `${c.name}(${JSON.stringify(c.args)})`)
     );
 
     // Adım 2: Tüm araç çağrılarını paralel çalıştır
@@ -179,6 +252,8 @@ Araç sonuçlarını aldıktan sonra sadece JSON döndür, markdown kullanma:
       : [],
     reasoning:
       typeof parsed.reasoning === "string" ? parsed.reasoning : "",
+    webSearchQueries,
+    toolCalls: toolCallNames,
   };
 }
 
@@ -208,6 +283,33 @@ export async function validationAgent(
     baseBrandRisk + impersonationRisk
   );
 
+  // E-ticaret sinyalleri — Gemini extraction'dan gelen + kendi detektörümüzle birleştir
+  const pricingAnomaliesFromText = detectPricingAnomalies(data.textSummary);
+  const giveawayFromText = detectGiveawayPhrases(data.textSummary);
+  const discountFromText = detectFakeDiscountPhrases(data.textSummary);
+
+  // Gemini extraction'ın bulduklarını da fiyat anomalisi açısından tara
+  const pricingAnomaliesFromExtraction = (data.priceClaims ?? []).flatMap((c) =>
+    detectPricingAnomalies(c)
+  );
+
+  const allPricingAnomalies = [
+    ...new Set([...pricingAnomaliesFromText, ...pricingAnomaliesFromExtraction]),
+  ];
+  const allGiveawayPhrases = [
+    ...new Set([...giveawayFromText, ...(data.giveawayPhrases ?? [])]),
+  ];
+  const allDiscountClaims = [
+    ...new Set([...discountFromText, ...(data.discountClaims ?? [])]),
+  ];
+
+  const ecommerceRisk = calculateEcommerceRisk(
+    allPricingAnomalies,
+    allGiveawayPhrases,
+    allDiscountClaims,
+    hasUrl
+  );
+
   const preliminary = {
     urlRisk,
     ibanRisk,
@@ -218,6 +320,8 @@ export async function validationAgent(
   // Step 2: Gemini + Function Calling — gerçek zamanlı araç tabanlı analiz
   let finalRisks = { ...preliminary };
   let reasoning: string | undefined;
+  let webSearchQueries: string[] = [];
+  let toolCalls: string[] = [];
   const redFlags: string[] = [];
 
   try {
@@ -236,6 +340,8 @@ export async function validationAgent(
     };
 
     reasoning = gemini.reasoning;
+    webSearchQueries = gemini.webSearchQueries;
+    toolCalls = gemini.toolCalls;
     redFlags.push(...gemini.additionalRedFlags);
   } catch (error) {
     console.error(
@@ -278,11 +384,31 @@ export async function validationAgent(
   if (finalRisks.brandSpoofRisk > 40)
     redFlags.push("Bilinen bir marka veya kurum taklidi şüphesi.");
 
+  // E-ticaret red flag'leri
+  if (allPricingAnomalies.length > 0) {
+    redFlags.push(
+      `Gerçekçi olmayan fiyat: ${allPricingAnomalies[0]}`
+    );
+  }
+  if (allGiveawayPhrases.length > 0 && hasUrl) {
+    redFlags.push(
+      `Çekiliş/ödül vaadi + şüpheli link kombinasyonu — klasik dolandırıcılık tuzağı.`
+    );
+  }
+  if (allDiscountClaims.length >= 2) {
+    redFlags.push(
+      `Yapay aciliyet ve indirim baskısı (${allDiscountClaims.slice(0, 2).join(", ")}).`
+    );
+  }
+
   const uniqueRedFlags = [...new Set(redFlags)];
 
   return ValidationSchema.parse({
     ...finalRisks,
+    ecommerceRisk,
     redFlags: uniqueRedFlags,
     reasoning,
+    webSearchQueries: webSearchQueries.length > 0 ? webSearchQueries : undefined,
+    toolCalls: toolCalls.length > 0 ? toolCalls : undefined,
   });
 }

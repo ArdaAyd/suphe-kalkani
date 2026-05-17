@@ -39,6 +39,9 @@ Extraction Agent Tespitleri:
 - IBAN'lar: ${extraction.ibans.length > 0 ? extraction.ibans.join(", ") : "tespit edilmedi"}
 - Telefon: ${extraction.phones.length > 0 ? extraction.phones.join(", ") : "tespit edilmedi"}
 - Aciliyet İfadeleri: ${extraction.urgencyPhrases.length > 0 ? extraction.urgencyPhrases.join("; ") : "tespit edilmedi"}
+- Fiyat İddiaları: ${extraction.priceClaims && extraction.priceClaims.length > 0 ? extraction.priceClaims.join("; ") : "yok"}
+- Çekiliş/Hediye Vaadleri: ${extraction.giveawayPhrases && extraction.giveawayPhrases.length > 0 ? extraction.giveawayPhrases.join("; ") : "yok"}
+- Sahte Kampanya İddiaları: ${extraction.discountClaims && extraction.discountClaims.length > 0 ? extraction.discountClaims.join("; ") : "yok"}
 
 Kırmızı Bayraklar: ${validation.redFlags.length > 0 ? validation.redFlags.join("; ") : "yok"}
 
@@ -149,6 +152,7 @@ export async function judgementAgent(
     ibanRisk: validation.ibanRisk,
     urgencyRisk: validation.urgencyRisk,
     brandSpoofRisk: validation.brandSpoofRisk,
+    ecommerceRisk: validation.ecommerceRisk,
   }, isAudioTranscript);
 
   const riskLevel = getRiskLevel(finalScore);

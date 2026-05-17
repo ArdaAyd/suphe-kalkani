@@ -10,6 +10,10 @@ export const ExtractionSchema = z.object({
   brandNames: z.array(z.string()),
   claims: z.array(z.string()),
   urgencyPhrases: z.array(z.string()),
+  // E-ticaret odaklı yeni alanlar (opsiyonel, geriye uyumlu)
+  priceClaims: z.array(z.string()).optional().default([]),
+  giveawayPhrases: z.array(z.string()).optional().default([]),
+  discountClaims: z.array(z.string()).optional().default([]),
 });
 
 export const ValidationSchema = z.object({
@@ -17,8 +21,12 @@ export const ValidationSchema = z.object({
   ibanRisk: z.number().min(0).max(100),
   urgencyRisk: z.number().min(0).max(100),
   brandSpoofRisk: z.number().min(0).max(100),
+  ecommerceRisk: z.number().min(0).max(100).optional().default(0),
   redFlags: z.array(z.string()),
   reasoning: z.string().optional(),
+  // Gemini'nin canlı yaptığı Google aramaları (grounding metadata)
+  webSearchQueries: z.array(z.string()).optional(),
+  toolCalls: z.array(z.string()).optional(),
 });
 
 export const FinalReportSchema = z.object({
