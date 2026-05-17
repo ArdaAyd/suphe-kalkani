@@ -5,6 +5,8 @@ import {
   calculateUrgencyRisk,
   calculateUrlRisk,
   checkDomainSpoof,
+  checkEmailDomainSpoof,
+  detectDeepfakeSignals,
   detectFakeDiscountPhrases,
   detectGiveawayPhrases,
   detectPricingAnomalies,
@@ -72,23 +74,29 @@ async function geminiReasoningWithFunctionCalling(
   const webSearchQueries: string[] = [];
   let brandVerificationNotes = "";
 
-  if (data.brandNames.length > 0) {
+  const hasBrandOrEmail =
+    data.brandNames.length > 0 || (data.senderEmails ?? []).length > 0;
+
+  if (hasBrandOrEmail) {
     try {
       const brandPrompt = `Aşağıdaki içerikte geçen markaları ve iddiaları Google üzerinden DOĞRULA.
 
 Markalar: ${data.brandNames.join(", ")}
 ${data.urls.length > 0 ? `Mesajdaki URL'ler: ${data.urls.join(", ")}` : ""}
+${(data.senderEmails ?? []).length > 0 ? `Gönderici e-posta(lar): ${(data.senderEmails ?? []).join(", ")}` : ""}
 İçerik özeti: ${data.textSummary}
 ${data.claims.length > 0 ? `İddialar: ${data.claims.join("; ")}` : ""}
 
 Şunları araştır:
 1. Her marka için RESMİ web sitesini bul (örn: "[marka adı] resmi site").
 2. URL'lerdeki domain, markanın resmi domaini mi karşılaştır.
-3. İçerikteki kampanya/indirim/çekiliş iddiası gerçek mi (örn: "[marka] [kampanya] gerçek mi").
+3. Gönderici e-posta(lar) varsa: email domain'i markanın resmi domain'i veya bilinen subdomain'i mi? (Örn: news@email.trendyol.com → trendyol.com'a ait, MEŞRU. news@trendyol-mail.xyz → AYRI bir domain, SAHTE.)
+4. İçerikteki kampanya/indirim/çekiliş iddiası gerçek mi (örn: "[marka] [kampanya] gerçek mi").
 
-Sadece düz metin yanıt ver (max 4 cümle). Şunu içersin:
+Sadece düz metin yanıt ver (max 5 cümle). Şunu içersin:
 - Resmi domain(ler) ne?
 - URL eşleşiyor mu yoksa SAHTE mi?
+- E-posta gönderici resmi mi yoksa SAHTE mi?
 - Kampanya iddiası varsa: gerçek mi?`;
 
       const brandResp = await ai.models.generateContent({
@@ -276,8 +284,16 @@ export async function validationAgent(
   const domainSpoofRisk = checkDomainSpoof(data.brandNames, data.urls);
   const impersonationRisk = hasBrand && hasUrgency ? 40 : 0;
 
-  const baseBrandRisk =
-    domainSpoofRisk > 0 ? domainSpoofRisk : hasBrand && hasUrl ? 60 : 0;
+  // E-posta spoof kontrolü (e.g., news@trendyol-mail.xyz iken marka "Trendyol")
+  const senderEmails = data.senderEmails ?? [];
+  const emailSpoofCheck = checkEmailDomainSpoof(data.brandNames, senderEmails);
+
+  // En yüksek brand spoof riskini al (URL veya email kaynaklı)
+  const baseBrandRisk = Math.max(
+    domainSpoofRisk,
+    emailSpoofCheck.risk,
+    hasBrand && hasUrl ? 60 : 0
+  );
   const deterministicBrandSpoofRisk = Math.min(
     100,
     baseBrandRisk + impersonationRisk
@@ -309,6 +325,17 @@ export async function validationAgent(
     allDiscountClaims,
     hasUrl
   );
+
+  // Deepfake/AI-generated içerik tespiti
+  // Video/audio gözlemleri orchestrator tarafından urgencyPhrases'e merge ediliyor.
+  // Ayrıca textSummary ve claims'i de tarayalım.
+  const deepfakeScanInput = [
+    ...data.urgencyPhrases,
+    ...data.claims,
+    data.textSummary,
+  ];
+  const deepfakeCheck = detectDeepfakeSignals(deepfakeScanInput);
+  const deepfakeRisk = deepfakeCheck.risk;
 
   const preliminary = {
     urlRisk,
@@ -384,6 +411,22 @@ export async function validationAgent(
   if (finalRisks.brandSpoofRisk > 40)
     redFlags.push("Bilinen bir marka veya kurum taklidi şüphesi.");
 
+  // E-posta spoof red flag'leri (eğer tespit edildiyse)
+  if (emailSpoofCheck.details.length > 0) {
+    redFlags.push(...emailSpoofCheck.details);
+  }
+
+  // Deepfake red flag'leri
+  if (deepfakeRisk >= 70) {
+    redFlags.push(
+      "AI ile üretilmiş / deepfake içerik tespit edildi — bu görsel veya ses yapay olabilir."
+    );
+  } else if (deepfakeRisk >= 45) {
+    redFlags.push(
+      "Yapay/manipüle içerik şüphesi — dudak senkronu veya görüntü tutarsızlığı."
+    );
+  }
+
   // E-ticaret red flag'leri
   if (allPricingAnomalies.length > 0) {
     redFlags.push(
@@ -406,6 +449,8 @@ export async function validationAgent(
   return ValidationSchema.parse({
     ...finalRisks,
     ecommerceRisk,
+    deepfakeRisk,
+    deepfakeSignals: deepfakeCheck.signals,
     redFlags: uniqueRedFlags,
     reasoning,
     webSearchQueries: webSearchQueries.length > 0 ? webSearchQueries : undefined,

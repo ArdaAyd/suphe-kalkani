@@ -1,6 +1,7 @@
 import { ai } from "@/lib/gemini/client";
 import { ExtractionSchema } from "@/lib/schemas/reportSchema";
 import {
+  detectEmails,
   detectIbans,
   detectPhones,
   detectUrgencyPhrases,
@@ -35,6 +36,7 @@ function fallbackExtraction(input: string) {
     priceClaims: [],
     giveawayPhrases: [],
     discountClaims: [],
+    senderEmails: detectEmails(input),
   };
 }
 
@@ -62,6 +64,11 @@ E-Ticaret Sinyalleri (e-ticaret dolandırıcılığı için KRİTİK):
 - "giveawayPhrases": çekiliş/hediye/ödül kazanma vaadi içeren ifadeler ("iPhone kazandınız", "Tebrikler ödülünüz hazır", "Ücretsiz hediye").
 - "discountClaims": indirim/kampanya iddiaları ("%80 indirim", "Black Friday özel", "Son 2 saat", "Stoklar tükeniyor").
 
+E-Posta Adresleri (ÇOK ÖNEMLİ — özellikle email screenshot'ları için):
+- "senderEmails": içerikte/görselde geçen TÜM e-posta adreslerini topla. ÖZELLİKLE gönderici (sender, "from", "kimden") adresini ATLAMA.
+- Email screenshot'larında genelde üstte "Trendyol <news@email.trendyol.com>" gibi yazar — bu "news@email.trendyol.com" adresini "senderEmails" listesine MUTLAKA ekle.
+- Bir email içeriği varsa ve sender adresini göremiyorsan boş bırak, ama görüyorsan ATLAMA.
+
 Sadece geçerli JSON döndür. Markdown kullanma.
 
 JSON formatı:
@@ -75,7 +82,8 @@ JSON formatı:
   "urgencyPhrases": ["aciliyet/baskı yaratan ifadeler"],
   "priceClaims": ["ürün+fiyat iddiaları"],
   "giveawayPhrases": ["çekiliş/hediye/ödül vaadi"],
-  "discountClaims": ["indirim/kampanya iddiaları"]
+  "discountClaims": ["indirim/kampanya iddiaları"],
+  "senderEmails": ["gönderici/sender email adresleri — özellikle email screenshot'larında"]
 }
 
 ${input.text ? (input.isAudioTranscript ? `Ses kaydı transkribi — sesli dolandırıcılık kalıplarına dikkat et (baskı, sahte yetkili, acele karar):\n${input.text}` : `Kullanıcı metni:\n${input.text}`) : "Görsel üzerinden analiz yap."}`;

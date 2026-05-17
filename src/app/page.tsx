@@ -11,14 +11,23 @@ type AnalyzeResponse = {
     brandNames: string[];
     claims: string[];
     urgencyPhrases: string[];
+    priceClaims?: string[];
+    giveawayPhrases?: string[];
+    discountClaims?: string[];
+    senderEmails?: string[];
   };
   validation: {
     urlRisk: number;
     ibanRisk: number;
     urgencyRisk: number;
     brandSpoofRisk: number;
+    ecommerceRisk?: number;
+    deepfakeRisk?: number;
+    deepfakeSignals?: string[];
     redFlags: string[];
     reasoning?: string;
+    webSearchQueries?: string[];
+    toolCalls?: string[];
   };
   report: {
     finalScore: number;
@@ -498,6 +507,8 @@ export default function Home() {
                         { label: "IBAN Riski", value: result.validation.ibanRisk },
                         { label: "Aciliyet Riski", value: result.validation.urgencyRisk },
                         { label: "Marka Taklidi Riski", value: result.validation.brandSpoofRisk },
+                        { label: "E-Ticaret Riski", value: result.validation.ecommerceRisk ?? 0 },
+                        { label: "AI / Deepfake Riski", value: result.validation.deepfakeRisk ?? 0 },
                       ] as const
                     ).map(({ label, value }) => (
                       <div key={label}>

@@ -14,6 +14,8 @@ export const ExtractionSchema = z.object({
   priceClaims: z.array(z.string()).optional().default([]),
   giveawayPhrases: z.array(z.string()).optional().default([]),
   discountClaims: z.array(z.string()).optional().default([]),
+  // E-posta gönderici adresleri (özellikle email screenshot'larında kritik)
+  senderEmails: z.array(z.string()).optional().default([]),
 });
 
 export const ValidationSchema = z.object({
@@ -22,6 +24,8 @@ export const ValidationSchema = z.object({
   urgencyRisk: z.number().min(0).max(100),
   brandSpoofRisk: z.number().min(0).max(100),
   ecommerceRisk: z.number().min(0).max(100).optional().default(0),
+  deepfakeRisk: z.number().min(0).max(100).optional().default(0),
+  deepfakeSignals: z.array(z.string()).optional().default([]),
   redFlags: z.array(z.string()),
   reasoning: z.string().optional(),
   // Gemini'nin canlı yaptığı Google aramaları (grounding metadata)

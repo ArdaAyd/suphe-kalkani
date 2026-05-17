@@ -32,10 +32,12 @@ async function geminiJudgement(
 Risk Skoru: ${finalScore}/100
 Risk Seviyesi: ${riskLevel}
 Validation Agent Analizi: ${validation.reasoning ?? "—"}
+${(validation.deepfakeRisk ?? 0) >= 45 ? `\n⚠️ AI/Deepfake Riski: ${validation.deepfakeRisk}/100 — Bu içerikte yapay zeka ile üretilmiş veya manipüle edilmiş görsel/ses sinyalleri tespit edildi. Raporda bu konuyu MUTLAKA vurgula (basit Türkçe ile: "video/ses sahte olabilir, yapay zeka ile üretilmiş olabilir").\n` : ""}
 
 Extraction Agent Tespitleri:
 - Marka/Kurum: ${extraction.brandNames.length > 0 ? extraction.brandNames.join(", ") : "tespit edilmedi"}
 - URL'ler: ${extraction.urls.length > 0 ? extraction.urls.join(", ") : "tespit edilmedi"}
+- Gönderici E-posta: ${extraction.senderEmails && extraction.senderEmails.length > 0 ? extraction.senderEmails.join(", ") : "tespit edilmedi"}
 - IBAN'lar: ${extraction.ibans.length > 0 ? extraction.ibans.join(", ") : "tespit edilmedi"}
 - Telefon: ${extraction.phones.length > 0 ? extraction.phones.join(", ") : "tespit edilmedi"}
 - Aciliyet İfadeleri: ${extraction.urgencyPhrases.length > 0 ? extraction.urgencyPhrases.join("; ") : "tespit edilmedi"}
@@ -153,6 +155,7 @@ export async function judgementAgent(
     urgencyRisk: validation.urgencyRisk,
     brandSpoofRisk: validation.brandSpoofRisk,
     ecommerceRisk: validation.ecommerceRisk,
+    deepfakeRisk: validation.deepfakeRisk,
   }, isAudioTranscript);
 
   const riskLevel = getRiskLevel(finalScore);
