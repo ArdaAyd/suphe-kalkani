@@ -9,6 +9,11 @@ import {
   ValidationSchema,
   type ExtractionResult,
 } from "@/lib/schemas/reportSchema";
+import {
+  SECURITY_TOOL_DECLARATIONS,
+  executeToolCall,
+} from "@/lib/tools/securityTools";
+import type { Content, Part } from "@google/genai";
 
 type GeminiValidationOutput = {
   urlRisk: number;
@@ -28,7 +33,19 @@ function safeScore(val: unknown): number {
   return isNaN(n) ? 0 : Math.max(0, Math.min(100, Math.round(n)));
 }
 
-async function geminiReasoning(
+/**
+ * Gemini ile agentic doğrulama — function calling loop.
+ *
+ * Akış:
+ *  1. Extraction verisi + deterministik ön skorlar Gemini'ye gönderilir,
+ *     3 araç tanımı da eklenir (domain yaşı, IBAN checksum, URL güvenlik).
+ *  2. Gemini gerekli araçları çağırır (URL varsa check_domain_age + check_url_safety,
+ *     IBAN varsa check_iban_validity).
+ *  3. Araç çağrıları paralel olarak çalıştırılır.
+ *  4. Sonuçlar Gemini'ye geri gönderilir.
+ *  5. Gemini nihai risk skorlarını ve red flag'leri JSON olarak döndürür.
+ */
+async function geminiReasoningWithFunctionCalling(
   data: ExtractionResult,
   preliminary: {
     urlRisk: number;
@@ -59,34 +76,98 @@ Deterministik Araç Sonuçları (0-100):
 - Aciliyet Riski: ${preliminary.urgencyRisk}
 - Marka Taklidi Riski: ${preliminary.brandSpoofRisk}
 
-Görevin: Bu verileri bağlamsal olarak değerlendir. Özellikle:
-1. URL'ler tespit edilen markalar/kurumların resmi domainleriyle uyuşuyor mu?
-   (Türk bankaları genellikle .com.tr kullanır: ziraatbank.com.tr, garantibbva.com.tr, isbank.com.tr, akbank.com, yapikredi.com.tr, halkbank.com.tr, vakifbank.com.tr)
-   (Kargo: ptt.gov.tr, arasshipping.com, yurticikargo.com, mngkargo.com.tr)
-   (Devlet: e-devlet.gov.tr, turkiye.gov.tr)
-2. Marka adı URL içinde var ama domain farklıysa (örn: ziraatbank-giris.com) bu güçlü bir phishing sinyalidir.
-3. Deterministik araçların kaçırdığı ek riskler var mı?
+Görevin:
+1. Eğer URL varsa: her URL için önce check_domain_age, sonra check_url_safety araçlarını çağır.
+2. Eğer IBAN varsa: her IBAN için check_iban_validity aracını çağır.
+3. Araç sonuçlarını ve deterministik verileri birleştirerek aşağıdaki JSON'u döndür.
 
-Sadece JSON döndür, markdown kullanma:
+Özellikle dikkat et:
+- URL'ler tespit edilen markalar/kurumların resmi domainleriyle uyuşuyor mu?
+  (Türk bankaları: ziraatbank.com.tr, garantibbva.com.tr, isbank.com.tr, akbank.com,
+   yapikredi.com.tr, halkbank.com.tr, vakifbank.com.tr)
+  (Kargo: ptt.gov.tr, arasshipping.com, yurticikargo.com, mngkargo.com.tr)
+  (Devlet: e-devlet.gov.tr, turkiye.gov.tr)
+- Marka adı URL içinde var ama domain farklıysa (örn: ziraatbank-giris.com) bu güçlü phishing sinyalidir.
+- Yeni domain + bilinen marka kombinasyonu = çok yüksek risk.
+
+Araç sonuçlarını aldıktan sonra sadece JSON döndür, markdown kullanma:
 {
   "urlRisk": <0-100>,
   "ibanRisk": <0-100>,
   "urgencyRisk": <0-100>,
   "brandSpoofRisk": <0-100>,
   "additionalRedFlags": ["tespit ettiğin ek kırmızı bayraklar, Türkçe"],
-  "reasoning": "1-2 cümle Türkçe analiz özeti"
+  "reasoning": "1-2 cümle Türkçe analiz özeti (araç bulgularını dahil et)"
 }`;
 
-  const response = await ai.models.generateContent({
+  const initialContents: Content[] = [
+    { role: "user", parts: [{ text: prompt }] },
+  ];
+
+  // Adım 1: İlk çağrı — araçlar tanımlı olarak gönder
+  const response1 = await ai.models.generateContent({
     model: "gemini-2.5-flash",
-    contents: [{ role: "user", parts: [{ text: prompt }] }],
-    config: { thinkingConfig: { thinkingBudget: 0 } },
+    contents: initialContents,
+    config: {
+      tools: [{ functionDeclarations: SECURITY_TOOL_DECLARATIONS }],
+      thinkingConfig: { thinkingBudget: 0 },
+    },
   });
 
-  const text = response.text;
-  if (!text) throw new Error("Gemini boş cevap döndürdü");
+  const functionCalls = response1.functionCalls;
+  let finalText: string | undefined;
 
-  const parsed = JSON.parse(cleanJson(text));
+  if (functionCalls && functionCalls.length > 0) {
+    console.log(
+      `[ValidationAgent] Gemini ${functionCalls.length} araç çağırdı:`,
+      functionCalls.map((c) => `${c.name}(${JSON.stringify(c.args)})`)
+    );
+
+    // Adım 2: Tüm araç çağrılarını paralel çalıştır
+    const toolResults = await Promise.all(
+      functionCalls.map((call) =>
+        executeToolCall(call.name!, call.args as Record<string, unknown>)
+      )
+    );
+
+    console.log("[ValidationAgent] Araç sonuçları:", toolResults);
+
+    // Model'in function call mesajını geçmişe ekle
+    const modelParts: Part[] = functionCalls.map((call) => ({
+      functionCall: call,
+    }));
+
+    // Araç yanıtlarını hazırla
+    const responseParts: Part[] = functionCalls.map((call, i) => ({
+      functionResponse: {
+        name: call.name,
+        response: toolResults[i],
+      },
+    }));
+
+    // Adım 3: Araç sonuçlarıyla ikinci çağrı
+    const response2 = await ai.models.generateContent({
+      model: "gemini-2.5-flash",
+      contents: [
+        ...initialContents,
+        { role: "model", parts: modelParts },
+        { role: "user", parts: responseParts },
+      ],
+      config: {
+        tools: [{ functionDeclarations: SECURITY_TOOL_DECLARATIONS }],
+        thinkingConfig: { thinkingBudget: 0 },
+      },
+    });
+
+    finalText = response2.text;
+  } else {
+    // Araç çağrısı yoksa (örn: URL/IBAN yok) direkt metin yanıtı
+    finalText = response1.text;
+  }
+
+  if (!finalText) throw new Error("Gemini boş cevap döndürdü");
+
+  const parsed = JSON.parse(cleanJson(finalText));
 
   return {
     urlRisk: safeScore(parsed.urlRisk),
@@ -101,7 +182,10 @@ Sadece JSON döndür, markdown kullanma:
   };
 }
 
-export async function validationAgent(data: ExtractionResult, isAudioTranscript = false) {
+export async function validationAgent(
+  data: ExtractionResult,
+  isAudioTranscript = false
+) {
   console.log("Validation Agent çalıştı");
 
   // Step 1: Deterministik araçlar — hızlı ve güvenilir temel ölçüm
@@ -117,12 +201,12 @@ export async function validationAgent(data: ExtractionResult, isAudioTranscript 
   const domainSpoofRisk = checkDomainSpoof(data.brandNames, data.urls);
   const impersonationRisk = hasBrand && hasUrgency ? 40 : 0;
 
-  // Domain spoof tespit edildiyse yüksek skoru kullan, yoksa genel brand+url heuristik
-  const baseBrandRisk = domainSpoofRisk > 0
-    ? domainSpoofRisk
-    : hasBrand && hasUrl ? 60 : 0;
-
-  const deterministicBrandSpoofRisk = Math.min(100, baseBrandRisk + impersonationRisk);
+  const baseBrandRisk =
+    domainSpoofRisk > 0 ? domainSpoofRisk : hasBrand && hasUrl ? 60 : 0;
+  const deterministicBrandSpoofRisk = Math.min(
+    100,
+    baseBrandRisk + impersonationRisk
+  );
 
   const preliminary = {
     urlRisk,
@@ -131,17 +215,19 @@ export async function validationAgent(data: ExtractionResult, isAudioTranscript 
     brandSpoofRisk: deterministicBrandSpoofRisk,
   };
 
-  // Step 2: Gemini reasoning — bağlamsal analiz ve domain doğrulama
+  // Step 2: Gemini + Function Calling — gerçek zamanlı araç tabanlı analiz
   let finalRisks = { ...preliminary };
   let reasoning: string | undefined;
   const redFlags: string[] = [];
 
   try {
-    const gemini = await geminiReasoning(data, preliminary, isAudioTranscript);
+    const gemini = await geminiReasoningWithFunctionCalling(
+      data,
+      preliminary,
+      isAudioTranscript
+    );
 
     // Gemini skoru ile deterministik skoru karşılaştır, yükseği al
-    // Gemini bağlamsal olarak daha iyi değerlendirirse skoru yükseltebilir,
-    // ama deterministik güvencelerin altına düşüremez
     finalRisks = {
       urlRisk: Math.max(urlRisk, gemini.urlRisk),
       ibanRisk: Math.max(ibanRisk, gemini.ibanRisk),
@@ -150,18 +236,19 @@ export async function validationAgent(data: ExtractionResult, isAudioTranscript 
     };
 
     reasoning = gemini.reasoning;
-
     redFlags.push(...gemini.additionalRedFlags);
   } catch (error) {
-    console.error("Gemini validation reasoning başarısız, deterministik sonuç kullanılıyor:", error);
+    console.error(
+      "Gemini validation başarısız, deterministik sonuç kullanılıyor:",
+      error
+    );
   }
 
   // Ses kaydı özel kontrolü: link/tıklama talebi vishing belirtisi
   if (isAudioTranscript) {
-    const allText = [
-      ...data.urgencyPhrases,
-      data.textSummary,
-    ].join(" ").toLowerCase();
+    const allText = [...data.urgencyPhrases, data.textSummary]
+      .join(" ")
+      .toLowerCase();
 
     const hasLinkRequest =
       allText.includes("link") ||
@@ -175,17 +262,22 @@ export async function validationAgent(data: ExtractionResult, isAudioTranscript 
 
     if (hasLinkRequest) {
       finalRisks.urlRisk = Math.max(finalRisks.urlRisk, 70);
-      redFlags.push("Telefon görüşmesinde link tıklama talebi — sesli kimlik avı (vishing) belirtisi.");
+      redFlags.push(
+        "Telefon görüşmesinde link tıklama talebi — sesli kimlik avı (vishing) belirtisi."
+      );
     }
   }
 
   // Step 3: Deterministik red flag'ler
-  if (finalRisks.urlRisk > 50) redFlags.push("Şüpheli veya resmi olmayan bağlantı tespit edildi.");
-  if (finalRisks.ibanRisk > 50) redFlags.push("IBAN paylaşımı içeriyor — doğrudan ödeme talebi.");
-  if (finalRisks.urgencyRisk > 40) redFlags.push("Aciliyet baskısı oluşturmaya yönelik ifadeler mevcut.");
-  if (finalRisks.brandSpoofRisk > 40) redFlags.push("Bilinen bir marka veya kurum taklidi şüphesi.");
+  if (finalRisks.urlRisk > 50)
+    redFlags.push("Şüpheli veya resmi olmayan bağlantı tespit edildi.");
+  if (finalRisks.ibanRisk > 50)
+    redFlags.push("IBAN paylaşımı içeriyor — doğrudan ödeme talebi.");
+  if (finalRisks.urgencyRisk > 40)
+    redFlags.push("Aciliyet baskısı oluşturmaya yönelik ifadeler mevcut.");
+  if (finalRisks.brandSpoofRisk > 40)
+    redFlags.push("Bilinen bir marka veya kurum taklidi şüphesi.");
 
-  // Tekrar edenleri temizle
   const uniqueRedFlags = [...new Set(redFlags)];
 
   return ValidationSchema.parse({
