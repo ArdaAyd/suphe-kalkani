@@ -50,6 +50,12 @@ type AnalyzeResponse = {
     visualObservations: string[];
     sourceType: "video";
   };
+  image?: {
+    isAiGenerated: boolean;
+    aiGeneratedRisk: number;
+    verdict: string;
+    visualObservations: string[];
+  };
 };
 
 const LOADING_STEPS = [
@@ -614,6 +620,52 @@ export default function Home() {
                         <ul className="space-y-1">
                           {result.audio.riskObservations.map((obs, i) => (
                             <li key={i} className="text-sm bg-red-500/10 border border-red-500/30 rounded-xl px-3 py-2">
+                              {obs}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Görsel Doğruluk Analizi */}
+                {result.image && (
+                  <div className="rounded-xl border border-zinc-700 bg-zinc-700/30 p-4">
+                    <p className="text-zinc-400 text-xs mb-3">🖼 Görsel Doğruluk Analizi</p>
+
+                    <div className="mb-3 flex flex-wrap items-center gap-3">
+                      <span
+                        className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                          result.image.aiGeneratedRisk >= 60
+                            ? "bg-red-500 text-white"
+                            : result.image.aiGeneratedRisk >= 35
+                            ? "bg-yellow-500 text-black"
+                            : "bg-green-500 text-white"
+                        }`}
+                      >
+                        {result.image.isAiGenerated ? "YAPAY / MANİPÜLE" : "GERÇEK GÖRÜNÜYOR"}
+                      </span>
+                      <span className="text-xs text-zinc-400">
+                        AI / manipülasyon olasılığı: %{result.image.aiGeneratedRisk}
+                      </span>
+                    </div>
+
+                    {result.image.verdict && (
+                      <p className="text-sm text-zinc-200 bg-zinc-800 rounded-xl p-3 leading-relaxed mb-3">
+                        {result.image.verdict}
+                      </p>
+                    )}
+
+                    {result.image.visualObservations.length > 0 && (
+                      <div>
+                        <p className="text-xs text-zinc-400 mb-2">👁 Görsel Manipülasyon Tespitleri</p>
+                        <ul className="space-y-1">
+                          {result.image.visualObservations.map((obs, i) => (
+                            <li
+                              key={i}
+                              className="text-sm bg-orange-500/10 border border-orange-500/30 rounded-xl px-3 py-2"
+                            >
                               {obs}
                             </li>
                           ))}

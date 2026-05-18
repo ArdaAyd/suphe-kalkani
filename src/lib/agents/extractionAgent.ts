@@ -6,6 +6,7 @@ import {
   detectPhones,
   detectUrgencyPhrases,
   detectUrls,
+  sanitizeUrl,
 } from "@/lib/utils/riskHelpers";
 
 type ExtractionAgentInput = {
@@ -24,10 +25,14 @@ function cleanGeminiJson(text: string) {
     .trim();
 }
 
+function sanitizeUrls(urls: string[]): string[] {
+  return [...new Set(urls.map(sanitizeUrl).filter((u) => u.length > 0))];
+}
+
 function fallbackExtraction(input: string) {
   return {
     textSummary: input,
-    urls: detectUrls(input),
+    urls: sanitizeUrls(detectUrls(input)),
     ibans: detectIbans(input),
     phones: detectPhones(input),
     brandNames: [],
@@ -68,6 +73,10 @@ E-Posta Adresleri (ÇOK ÖNEMLİ — özellikle email screenshot'ları için):
 - "senderEmails": içerikte/görselde geçen TÜM e-posta adreslerini topla. ÖZELLİKLE gönderici (sender, "from", "kimden") adresini ATLAMA.
 - Email screenshot'larında genelde üstte "Trendyol <news@email.trendyol.com>" gibi yazar — bu "news@email.trendyol.com" adresini "senderEmails" listesine MUTLAKA ekle.
 - Bir email içeriği varsa ve sender adresini göremiyorsan boş bırak, ama görüyorsan ATLAMA.
+
+URL / Bağlantı tespiti (ÖNEMLİ):
+- Görselde veya metinde görünen HER bağlantıyı, web adresini "urls" listesine ekle (mavi renkli linkler dahil).
+- URL'leri DÜZ METİN olarak yaz. Markdown link biçimi [metin](adres) KULLANMA — yalnızca adresin kendisini yaz (örn: "www.site.com").
 
 Sadece geçerli JSON döndür. Markdown kullanma.
 
@@ -115,7 +124,9 @@ ${input.text ? (input.isAudioTranscript ? `Ses kaydı transkribi — sesli dolan
     const cleanedText = cleanGeminiJson(text);
     const parsed = JSON.parse(cleanedText);
 
-    return ExtractionSchema.parse(parsed);
+    const result = ExtractionSchema.parse(parsed);
+    result.urls = sanitizeUrls(result.urls);
+    return result;
   } catch (error) {
     console.error(
       "Gemini extraction failed, fallback çalıştı:",

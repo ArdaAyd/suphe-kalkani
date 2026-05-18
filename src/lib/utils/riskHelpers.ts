@@ -60,13 +60,25 @@ const KNOWN_OFFICIAL_DOMAINS: Record<string, string[]> = {
   gib: ["gib.gov.tr"],
 };
 
-function extractHostname(url: string): string {
+export function extractHostname(url: string): string {
   try {
     const withProtocol = url.startsWith("http") ? url : `https://${url}`;
     return new URL(withProtocol).hostname.toLowerCase();
   } catch {
     return url.toLowerCase().split("/")[0];
   }
+}
+
+/**
+ * Markdown link [metin](adres) biçimini ve fazlalık karakterleri temizleyip
+ * düz bir URL string'ine indirger. Gemini bazen URL'leri markdown link olarak
+ * üretir (extraction çıktısında ve araç çağrılarında); bu da domain sorgularını bozar.
+ */
+export function sanitizeUrl(raw: string): string {
+  let u = (raw ?? "").trim();
+  const md = u.match(/\[[^\]]*\]\(\s*([^)\s]+)\s*\)/);
+  if (md) u = md[1];
+  return u.replace(/[<>[\]]/g, "").replace(/[.,;)]+$/, "").trim();
 }
 
 export function checkDomainSpoof(brandNames: string[], urls: string[]): number {

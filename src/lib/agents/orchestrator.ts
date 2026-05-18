@@ -3,6 +3,7 @@ import { validationAgent } from "./validationAgent";
 import { judgementAgent } from "./judgementAgent";
 import { AudioAnalysisAgent, type AudioAnalysisOutput } from "./audioAnalysisAgent";
 import { VideoAnalysisAgent, type VideoAnalysisOutput } from "./videoAnalysisAgent";
+import { ImageAnalysisAgent } from "./imageAnalysisAgent";
 
 type OrchestratorInput = {
   text: string;
@@ -56,18 +57,35 @@ export async function orchestrator(input: OrchestratorInput) {
     }
   }
 
-  const extractionResult = await extractionAgent({
-    text: pipelineText,
-    imageBase64: input.imageBase64,
-    imageMimeType: input.imageMimeType,
-    isAudioTranscript,
-  });
+  // Görsel doğruluk (deepfake / AI üretimi) analizi extraction ile paralel çalışır;
+  // ikisi de aynı görseli kullanır ama birbirinden bağımsızdır — ekstra gecikme yok.
+  const imageAgent = hasImage ? new ImageAnalysisAgent() : null;
 
-  // Ses/video tespitlerini extraction sonucuna ekle (varsa)
+  const [extractionResult, imageAnalysis] = await Promise.all([
+    extractionAgent({
+      text: pipelineText,
+      imageBase64: input.imageBase64,
+      imageMimeType: input.imageMimeType,
+      isAudioTranscript,
+    }),
+    imageAgent
+      ? imageAgent.analyze(input.imageBase64!, input.imageMimeType)
+      : Promise.resolve(null),
+  ]);
+
+  if (imageAnalysis) {
+    console.log(
+      "Orchestrator: görsel doğruluk analizi tamamlandı, AI/manipülasyon riski:",
+      imageAnalysis.aiGeneratedRisk
+    );
+  }
+
+  // Ses/video/görsel tespitlerini extraction sonucuna ekle (varsa)
   const mediaRiskObservations = [
     ...(audioAnalysis?.riskObservations ?? []),
     ...(videoAnalysis?.riskObservations ?? []),
     ...(videoAnalysis?.visualObservations ?? []),
+    ...(imageAnalysis?.visualObservations ?? []),
   ];
   if (mediaRiskObservations.length > 0) {
     extractionResult.urgencyPhrases.push(
@@ -77,7 +95,15 @@ export async function orchestrator(input: OrchestratorInput) {
     );
   }
 
-  const validationResult = await validationAgent(extractionResult, isAudioTranscript);
+  // Görsel kaynaklı doğrudan deepfake/AI riski validation'a iletilir;
+  // metin sinyali keyword eşleşmesine takılmadan skoru yükseltebilir.
+  const mediaDeepfakeRisk = imageAnalysis?.aiGeneratedRisk ?? 0;
+
+  const validationResult = await validationAgent(
+    extractionResult,
+    isAudioTranscript,
+    mediaDeepfakeRisk
+  );
   const judgementResult = await judgementAgent(validationResult, extractionResult, isAudioTranscript);
 
   console.log("Orchestrator tamamlandı");
@@ -88,5 +114,6 @@ export async function orchestrator(input: OrchestratorInput) {
     report: judgementResult,
     ...(audioAnalysis ? { audio: audioAnalysis } : {}),
     ...(videoAnalysis ? { video: videoAnalysis } : {}),
+    ...(imageAnalysis ? { image: imageAnalysis } : {}),
   };
 }

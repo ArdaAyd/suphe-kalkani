@@ -59,6 +59,36 @@ function isQuotaError(err: unknown): boolean {
 }
 
 // ─────────────────────────────────────────────
+// 503 / aşırı yük hatası tespiti
+// ─────────────────────────────────────────────
+function isOverloadError(err: unknown): boolean {
+  if (!err) return false;
+  const msg = err instanceof Error ? err.message : String(err);
+  return (
+    msg.includes("503") ||
+    msg.includes("UNAVAILABLE") ||
+    msg.includes("overloaded") ||
+    msg.includes("high demand")
+  );
+}
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const MAX_OVERLOAD_RETRIES = 3;
+
+/**
+ * Tüm Gemini API anahtarları kota (429) veya aşırı yük (503) nedeniyle
+ * kullanılamadığında fırlatılır. Çağıran katmanlar bunu yakalayıp sahte
+ * "güvenli" sonuç üretmek yerine kullanıcıya dürüst bir hata göstermelidir.
+ */
+export class GeminiUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "GeminiUnavailableError";
+  }
+}
+
+// ─────────────────────────────────────────────
 // generateContent wrapper — key rotation ile
 // ─────────────────────────────────────────────
 type GenerateContentParams = Parameters<
@@ -69,36 +99,54 @@ async function generateContentWithRotation(
   params: GenerateContentParams
 ): Promise<Awaited<ReturnType<GoogleGenAI["models"]["generateContent"]>>> {
   const startIndex = currentKeyIndex;
-  let lastError: unknown;
 
   // Tüm key'leri sırayla dene
   for (let attempt = 0; attempt < clients.length; attempt++) {
     const index = (startIndex + attempt) % clients.length;
     const client = clients[index];
 
-    try {
-      const result = await client.models.generateContent(params);
-      // Başarılı çağrı sonrası currentKey güncelle (next request bu key'den başlasın)
-      currentKeyIndex = index;
-      return result;
-    } catch (err) {
-      lastError = err;
+    // 503 (model aşırı yüklü) genelde anlık bir spike'tır — aynı key ile
+    // artan beklemeyle birkaç kez tekrar dene.
+    for (let retry = 0; retry <= MAX_OVERLOAD_RETRIES; retry++) {
+      try {
+        const result = await client.models.generateContent(params);
+        // Başarılı çağrı sonrası currentKey güncelle (next request bu key'den başlasın)
+        currentKeyIndex = index;
+        return result;
+      } catch (err) {
+        if (isOverloadError(err)) {
+          if (retry < MAX_OVERLOAD_RETRIES) {
+            const delay = 700 * 2 ** retry; // 700ms → 1.4s → 2.8s
+            console.warn(
+              `[Gemini] Model aşırı yüklü (503), ${delay}ms sonra tekrar (${retry + 1}/${MAX_OVERLOAD_RETRIES})...`
+            );
+            await sleep(delay);
+            continue; // aynı key ile yeniden dene
+          }
+          // Aşırı yük denemeleri tükendi — servis kullanılamıyor
+          throw new GeminiUnavailableError(
+            "Gemini modeli şu an aşırı yüklü (503)."
+          );
+        }
 
-      if (isQuotaError(err)) {
-        console.warn(
-          `[Gemini] Key #${index + 1} quota doldu, sıradaki key'e geçiliyor...`
-        );
-        continue;
+        if (isQuotaError(err)) {
+          console.warn(
+            `[Gemini] Key #${index + 1} kotası doldu, sıradaki key'e geçiliyor...`
+          );
+          break; // iç döngüden çık → sıradaki key
+        }
+
+        // Quota / aşırı yük dışı hata — ham fırlat
+        throw err;
       }
-
-      // Quota dışı hata — fırlat
-      throw err;
     }
   }
 
-  // Tüm key'ler tükendi
-  console.error("[Gemini] Tüm API key'ler quota doldu");
-  throw lastError;
+  // Tüm key'lerin kotası doldu
+  console.error("[Gemini] Tüm API key'lerinin kotası doldu");
+  throw new GeminiUnavailableError(
+    "Tüm Gemini API anahtarlarının kotası doldu (429)."
+  );
 }
 
 // ─────────────────────────────────────────────

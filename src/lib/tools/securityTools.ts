@@ -8,6 +8,7 @@
  */
 
 import { Type, type FunctionDeclaration } from "@google/genai";
+import { sanitizeUrl } from "@/lib/utils/riskHelpers";
 
 // ─────────────────────────────────────────────
 // 1. Domain Yaşı — RDAP
@@ -332,7 +333,7 @@ export async function executeToolCall(
     switch (name) {
       case "check_domain_age":
         return (await checkDomainAge(
-          args.domain as string
+          sanitizeUrl(String(args.domain ?? ""))
         )) as unknown as Record<string, unknown>;
 
       case "check_iban_validity":
@@ -342,7 +343,7 @@ export async function executeToolCall(
 
       case "check_url_safety":
         return checkUrlSafety(
-          args.url as string
+          sanitizeUrl(String(args.url ?? ""))
         ) as unknown as Record<string, unknown>;
 
       default:

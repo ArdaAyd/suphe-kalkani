@@ -10,6 +10,7 @@ import {
   detectFakeDiscountPhrases,
   detectGiveawayPhrases,
   detectPricingAnomalies,
+  extractHostname,
 } from "@/lib/utils/riskHelpers";
 import {
   ValidationSchema,
@@ -21,6 +22,37 @@ import {
 } from "@/lib/tools/securityTools";
 import type { Content, Part } from "@google/genai";
 
+// ─────────────────────────────────────────────
+// Tipler
+// ─────────────────────────────────────────────
+
+type DomainVerdict = {
+  value: string;
+  verdict: "official" | "spoof" | "unknown";
+  note: string;
+};
+
+/**
+ * Faz 1'de Google Search ile yapılan yapısal URL / marka / e-posta doğrulaması.
+ *
+ * Serbest metin yerine yapısal verdict üretilir; bu sayede deterministik
+ * sözlük tabanlı kontrollerin yarattığı yanlış pozitifler (örn. resmi ama
+ * sözlükte olmayan bir domain) search sonucuna göre geri alınabilir.
+ */
+type BrandVerification = {
+  brandImpersonation: "spoof" | "legitimate" | "unknown";
+  urlVerdicts: DomainVerdict[];
+  emailVerdicts: DomainVerdict[];
+  summary: string;
+};
+
+const EMPTY_VERIFICATION: BrandVerification = {
+  brandImpersonation: "unknown",
+  urlVerdicts: [],
+  emailVerdicts: [],
+  summary: "",
+};
+
 type GeminiValidationOutput = {
   urlRisk: number;
   ibanRisk: number;
@@ -30,6 +62,7 @@ type GeminiValidationOutput = {
   reasoning: string;
   webSearchQueries: string[];
   toolCalls: string[];
+  verification: BrandVerification;
 };
 
 function cleanJson(text: string) {
@@ -41,17 +74,119 @@ function safeScore(val: unknown): number {
   return isNaN(n) ? 0 : Math.max(0, Math.min(100, Math.round(n)));
 }
 
+/** URL'leri host bazında eşleştirmek için anahtar (protokol ve "www." atılır). */
+function urlKey(u: string): string {
+  return extractHostname(u).replace(/^www\./, "");
+}
+
+/** Faz 1 Google Search yanıtını yapısal BrandVerification'a çevirir. */
+function parseVerification(raw: string): BrandVerification {
+  try {
+    // googleSearch yanıtı JSON'un başına/sonuna metin ekleyebilir — bloğu ayıkla
+    const cleaned = cleanJson(raw);
+    const first = cleaned.indexOf("{");
+    const last = cleaned.lastIndexOf("}");
+    const jsonStr =
+      first !== -1 && last > first ? cleaned.slice(first, last + 1) : cleaned;
+    const parsed = JSON.parse(jsonStr);
+
+    const normVerdict = (v: unknown): DomainVerdict["verdict"] =>
+      v === "official" || v === "spoof" ? v : "unknown";
+
+    const mapVerdicts = (
+      arr: unknown,
+      key: "url" | "email"
+    ): DomainVerdict[] => {
+      if (!Array.isArray(arr)) return [];
+      return arr
+        .map((x): DomainVerdict => {
+          const o = (x ?? {}) as Record<string, unknown>;
+          return {
+            value: typeof o[key] === "string" ? (o[key] as string) : "",
+            verdict: normVerdict(o.verdict),
+            note: typeof o.note === "string" ? (o.note as string) : "",
+          };
+        })
+        .filter((v) => v.value.length > 0);
+    };
+
+    const bi = parsed.brandImpersonation;
+
+    return {
+      brandImpersonation:
+        bi === "spoof" || bi === "legitimate" ? bi : "unknown",
+      urlVerdicts: mapVerdicts(parsed.urlVerdicts, "url"),
+      emailVerdicts: mapVerdicts(parsed.emailVerdicts, "email"),
+      summary: typeof parsed.summary === "string" ? parsed.summary : "",
+    };
+  } catch {
+    return EMPTY_VERIFICATION;
+  }
+}
+
+/** BrandVerification'ı Faz 2 prompt'una eklenecek okunur metne çevirir. */
+function buildVerificationNotes(v: BrandVerification): string {
+  const lines: string[] = [];
+  if (v.summary) lines.push(v.summary);
+  lines.push(`Marka taklidi değerlendirmesi: ${v.brandImpersonation}`);
+  for (const u of v.urlVerdicts) {
+    lines.push(`URL ${u.value} → ${u.verdict}${u.note ? ` (${u.note})` : ""}`);
+  }
+  for (const e of v.emailVerdicts) {
+    lines.push(
+      `E-posta ${e.value} → ${e.verdict}${e.note ? ` (${e.note})` : ""}`
+    );
+  }
+  return lines.join("\n");
+}
+
 /**
- * Gemini ile agentic doğrulama — function calling loop.
+ * Deterministik marka taklidi (brand spoof) riski.
  *
- * Akış:
- *  1. Extraction verisi + deterministik ön skorlar Gemini'ye gönderilir,
- *     3 araç tanımı da eklenir (domain yaşı, IBAN checksum, URL güvenlik).
- *  2. Gemini gerekli araçları çağırır (URL varsa check_domain_age + check_url_safety,
- *     IBAN varsa check_iban_validity).
- *  3. Araç çağrıları paralel olarak çalıştırılır.
- *  4. Sonuçlar Gemini'ye geri gönderilir.
- *  5. Gemini nihai risk skorlarını ve red flag'leri JSON olarak döndürür.
+ * - concreteSpoof: typosquatting / sahte e-posta domaini gibi SOMUT kanıt —
+ *   her zaman sayılır.
+ * - heuristic: "marka + URL bir arada" (60) ve "marka + aciliyet" (40) gibi
+ *   SEZGİSEL zemin riskleri. Google araması markayı "legitimate" doğruladıysa
+ *   (brandConfirmedLegit) bu zemin riskleri uygulanmaz.
+ */
+function computeBrandRisk(
+  brandNames: string[],
+  urls: string[],
+  emails: string[],
+  hasUrgency: boolean,
+  brandConfirmedLegit: boolean
+): { brandSpoofRisk: number; emailSpoofDetails: string[] } {
+  const hasBrand = brandNames.length > 0;
+  const hasUrl = urls.length > 0;
+
+  const domainSpoofRisk = checkDomainSpoof(brandNames, urls);
+  const emailSpoofCheck = checkEmailDomainSpoof(brandNames, emails);
+  const concreteSpoof = Math.max(domainSpoofRisk, emailSpoofCheck.risk);
+
+  const impersonationRisk =
+    !brandConfirmedLegit && hasBrand && hasUrgency ? 40 : 0;
+  const coexistenceRisk =
+    !brandConfirmedLegit && hasBrand && hasUrl ? 60 : 0;
+  const heuristic = Math.min(100, coexistenceRisk + impersonationRisk);
+
+  return {
+    brandSpoofRisk: Math.max(concreteSpoof, heuristic),
+    emailSpoofDetails: emailSpoofCheck.details,
+  };
+}
+
+/**
+ * Gemini ile agentic doğrulama.
+ *
+ * Faz 1 — Google Search:
+ *   İçerikteki URL / marka / e-posta adresleri canlı arama ile doğrulanır ve
+ *   yapısal bir BrandVerification (her domain için official/spoof/unknown)
+ *   üretilir. Bu, deterministik yanlış pozitifleri geri almak için kullanılır.
+ *
+ * Faz 2 — Function Calling:
+ *   Extraction verisi + ön skorlar + Faz 1 bulguları Gemini'ye gönderilir;
+ *   Gemini domain yaşı / IBAN checksum / URL güvenlik araçlarını çağırır ve
+ *   nihai risk skorlarını JSON olarak döndürür.
  */
 async function geminiReasoningWithFunctionCalling(
   data: ExtractionResult,
@@ -68,64 +203,81 @@ async function geminiReasoningWithFunctionCalling(
     : "Bu içerik bir metin veya görsel analizden elde edilmiştir.";
 
   // ─────────────────────────────────────────────
-  // FAZ 1: Google Search ile marka doğrulama
-  // (Sadece marka adı varsa ve gerekli görüyorsak)
+  // FAZ 1: Google Search ile yapısal URL / marka / e-posta doğrulama
   // ─────────────────────────────────────────────
   const webSearchQueries: string[] = [];
-  let brandVerificationNotes = "";
+  let verification: BrandVerification = EMPTY_VERIFICATION;
 
-  const hasBrandOrEmail =
-    data.brandNames.length > 0 || (data.senderEmails ?? []).length > 0;
+  const hasVerifiableEntities =
+    data.brandNames.length > 0 ||
+    (data.senderEmails ?? []).length > 0 ||
+    data.urls.length > 0;
 
-  if (hasBrandOrEmail) {
+  if (hasVerifiableEntities) {
     try {
-      const brandPrompt = `Aşağıdaki içerikte geçen markaları ve iddiaları Google üzerinden DOĞRULA.
+      const verifyPrompt = `Aşağıdaki şüpheli içerikte geçen URL, marka ve e-posta adreslerini Google araması yaparak DOĞRULA.
 
-Markalar: ${data.brandNames.join(", ")}
-${data.urls.length > 0 ? `Mesajdaki URL'ler: ${data.urls.join(", ")}` : ""}
-${(data.senderEmails ?? []).length > 0 ? `Gönderici e-posta(lar): ${(data.senderEmails ?? []).join(", ")}` : ""}
+Markalar: ${data.brandNames.length > 0 ? data.brandNames.join(", ") : "yok"}
+URL'ler: ${data.urls.length > 0 ? data.urls.join(", ") : "yok"}
+Gönderici e-posta(lar): ${(data.senderEmails ?? []).length > 0 ? (data.senderEmails ?? []).join(", ") : "yok"}
 İçerik özeti: ${data.textSummary}
-${data.claims.length > 0 ? `İddialar: ${data.claims.join("; ")}` : ""}
 
-Şunları araştır:
-1. Her marka için RESMİ web sitesini bul (örn: "[marka adı] resmi site").
-2. URL'lerdeki domain, markanın resmi domaini mi karşılaştır.
-3. Gönderici e-posta(lar) varsa: email domain'i markanın resmi domain'i veya bilinen subdomain'i mi? (Örn: news@email.trendyol.com → trendyol.com'a ait, MEŞRU. news@trendyol-mail.xyz → AYRI bir domain, SAHTE.)
-4. İçerikteki kampanya/indirim/çekiliş iddiası gerçek mi (örn: "[marka] [kampanya] gerçek mi").
+Görevin: Google'da arama yaparak her URL ve her e-posta adresinin, ilgili markanın GERÇEK ve RESMİ mülkü mü yoksa taklit/sahte mi olduğunu belirle.
 
-Sadece düz metin yanıt ver (max 5 cümle). Şunu içersin:
-- Resmi domain(ler) ne?
-- URL eşleşiyor mu yoksa SAHTE mi?
-- E-posta gönderici resmi mi yoksa SAHTE mi?
-- Kampanya iddiası varsa: gerçek mi?`;
+ÇOK ÖNEMLİ:
+- Bir markanın birden fazla resmi domaini ve alt alan adı olabilir; hepsi resmidir.
+  Örnek: yapikredi.com.tr, yapikrediplay.com.tr, yukle.yapikredi.com → hepsi Yapı Kredi'ye aittir, RESMİDİR.
+  Örnek: news@email.trendyol.com → trendyol.com'a ait bir alt alan, RESMİDİR.
+- Marka adını taklit eden ama markaya ait olmayan ayrı domainler sahtedir.
+  Örnek: ziraatbank-giris.com, guvenbank-destek-mail.com, apple-kampanya-tr.com → SAHTE.
+- Kararından emin değilsen "unknown" de; tahmin yürütme.
 
-      const brandResp = await ai.models.generateContent({
+Her giriş için verdict:
+- "official": Google araması bu domain/e-postanın markanın gerçek resmi mülkü olduğunu gösteriyor.
+- "spoof": markayı taklit ediyor ama resmi değil.
+- "unknown": net karar verilemedi.
+
+brandImpersonation:
+- "legitimate": içerikteki tüm marka kullanımı meşru, taklit yok.
+- "spoof": bir marka taklit ediliyor.
+- "unknown": karar verilemedi.
+
+SADECE şu JSON'u döndür, markdown veya ek açıklama EKLEME:
+{
+  "brandImpersonation": "spoof" | "legitimate" | "unknown",
+  "urlVerdicts": [{ "url": "<url>", "verdict": "official|spoof|unknown", "note": "kısa Türkçe gerekçe" }],
+  "emailVerdicts": [{ "email": "<email>", "verdict": "official|spoof|unknown", "note": "kısa Türkçe gerekçe" }],
+  "summary": "1-2 cümle Türkçe özet"
+}`;
+
+      const verifyResp = await ai.models.generateContent({
         model: "gemini-2.5-flash",
-        contents: [{ role: "user", parts: [{ text: brandPrompt }] }],
+        contents: [{ role: "user", parts: [{ text: verifyPrompt }] }],
         config: {
           tools: [{ googleSearch: {} }],
         },
       });
 
-      const groundingMeta = brandResp.candidates?.[0]?.groundingMetadata;
-      const queries = groundingMeta?.webSearchQueries ?? [];
-      webSearchQueries.push(...queries);
-      brandVerificationNotes = brandResp.text ?? "";
+      const groundingMeta = verifyResp.candidates?.[0]?.groundingMetadata;
+      webSearchQueries.push(...(groundingMeta?.webSearchQueries ?? []));
+      verification = parseVerification(verifyResp.text ?? "");
 
-      if (queries.length > 0) {
-        console.log(
-          `[ValidationAgent] Faz 1 — Google'da ${queries.length} arama yapıldı:`,
-          queries
-        );
-        console.log(
-          "[ValidationAgent] Marka doğrulama özeti:",
-          brandVerificationNotes.slice(0, 200)
-        );
-      }
+      console.log("[ValidationAgent] Faz 1 — Google doğrulama:", {
+        queries: webSearchQueries,
+        brandImpersonation: verification.brandImpersonation,
+        urlVerdicts: verification.urlVerdicts.map(
+          (v) => `${v.value}:${v.verdict}`
+        ),
+        emailVerdicts: verification.emailVerdicts.map(
+          (v) => `${v.value}:${v.verdict}`
+        ),
+      });
     } catch (err) {
       console.error("[ValidationAgent] Faz 1 (Google Search) hata:", err);
     }
   }
+
+  const brandVerificationNotes = buildVerificationNotes(verification);
 
   // ─────────────────────────────────────────────
   // FAZ 2: Function Calling ile detaylı analiz
@@ -158,6 +310,7 @@ Görevin:
 1. Eğer URL varsa: her URL için check_domain_age VE check_url_safety çağır.
 2. Eğer IBAN varsa: her IBAN için check_iban_validity çağır.
 3. Marka doğrulama bulgularını ve araç sonuçlarını birleştir.
+4. ÖNEMLİ: Marka doğrulamasında bir URL/e-posta "official" işaretlendiyse onu resmi/güvenli kabul et ve ilgili risk skorunu DÜŞÜK ver; deterministik ön skor yüksek olsa bile. "spoof" işaretliyse riski yüksek tut.
 
 Bilinen Türk markaları:
 - Bankalar: ziraatbank.com.tr, garantibbva.com.tr, isbank.com.tr, akbank.com, yapikredi.com.tr
@@ -262,41 +415,33 @@ Araçları çağırdıktan sonra, SADECE aşağıdaki JSON'u döndür. Markdown 
       typeof parsed.reasoning === "string" ? parsed.reasoning : "",
     webSearchQueries,
     toolCalls: toolCallNames,
+    verification,
   };
 }
 
 export async function validationAgent(
   data: ExtractionResult,
-  isAudioTranscript = false
+  isAudioTranscript = false,
+  mediaDeepfakeRisk = 0
 ) {
   console.log("Validation Agent çalıştı");
 
-  // Step 1: Deterministik araçlar — hızlı ve güvenilir temel ölçüm
-  const urlRisk = calculateUrlRisk(data.urls);
+  // ─────────────────────────────────────────────
+  // Step 1: Deterministik ön skorlar (search override öncesi)
+  // ─────────────────────────────────────────────
   const ibanRisk = calculateIbanRisk(data.ibans);
   const urgencyRisk = calculateUrgencyRisk(data.urgencyPhrases);
-
-  const hasBrand = data.brandNames.length > 0;
   const hasUrl = data.urls.length > 0;
   const hasUrgency = data.urgencyPhrases.length > 0;
-
-  // Domain spoof kontrolü: bilinen kurumların typosquatting tespiti
-  const domainSpoofRisk = checkDomainSpoof(data.brandNames, data.urls);
-  const impersonationRisk = hasBrand && hasUrgency ? 40 : 0;
-
-  // E-posta spoof kontrolü (e.g., news@trendyol-mail.xyz iken marka "Trendyol")
   const senderEmails = data.senderEmails ?? [];
-  const emailSpoofCheck = checkEmailDomainSpoof(data.brandNames, senderEmails);
 
-  // En yüksek brand spoof riskini al (URL veya email kaynaklı)
-  const baseBrandRisk = Math.max(
-    domainSpoofRisk,
-    emailSpoofCheck.risk,
-    hasBrand && hasUrl ? 60 : 0
-  );
-  const deterministicBrandSpoofRisk = Math.min(
-    100,
-    baseBrandRisk + impersonationRisk
+  const preUrlRisk = calculateUrlRisk(data.urls);
+  const preBrand = computeBrandRisk(
+    data.brandNames,
+    data.urls,
+    senderEmails,
+    hasUrgency,
+    false
   );
 
   // E-ticaret sinyalleri — Gemini extraction'dan gelen + kendi detektörümüzle birleştir
@@ -304,7 +449,6 @@ export async function validationAgent(
   const giveawayFromText = detectGiveawayPhrases(data.textSummary);
   const discountFromText = detectFakeDiscountPhrases(data.textSummary);
 
-  // Gemini extraction'ın bulduklarını da fiyat anomalisi açısından tara
   const pricingAnomaliesFromExtraction = (data.priceClaims ?? []).flatMap((c) =>
     detectPricingAnomalies(c)
   );
@@ -326,29 +470,31 @@ export async function validationAgent(
     hasUrl
   );
 
-  // Deepfake/AI-generated içerik tespiti
-  // Video/audio gözlemleri orchestrator tarafından urgencyPhrases'e merge ediliyor.
-  // Ayrıca textSummary ve claims'i de tarayalım.
+  // Deepfake/AI-generated içerik tespiti — metin sinyali ile görsel ajanının
+  // doğrudan skorunun yükseğini al.
   const deepfakeScanInput = [
     ...data.urgencyPhrases,
     ...data.claims,
     data.textSummary,
   ];
   const deepfakeCheck = detectDeepfakeSignals(deepfakeScanInput);
-  const deepfakeRisk = deepfakeCheck.risk;
+  const deepfakeRisk = Math.max(deepfakeCheck.risk, mediaDeepfakeRisk);
 
   const preliminary = {
-    urlRisk,
+    urlRisk: preUrlRisk,
     ibanRisk,
     urgencyRisk,
-    brandSpoofRisk: deterministicBrandSpoofRisk,
+    brandSpoofRisk: preBrand.brandSpoofRisk,
   };
 
-  // Step 2: Gemini + Function Calling — gerçek zamanlı araç tabanlı analiz
+  // ─────────────────────────────────────────────
+  // Step 2: Gemini (Google Search + Function Calling) + search override
+  // ─────────────────────────────────────────────
   let finalRisks = { ...preliminary };
   let reasoning: string | undefined;
   let webSearchQueries: string[] = [];
   let toolCalls: string[] = [];
+  let emailSpoofDetails = preBrand.emailSpoofDetails;
   const redFlags: string[] = [];
 
   try {
@@ -358,18 +504,77 @@ export async function validationAgent(
       isAudioTranscript
     );
 
-    // Gemini skoru ile deterministik skoru karşılaştır, yükseği al
+    const verification = gemini.verification;
+
+    // Google araması RESMİ olarak doğruladığı URL ve e-postaları belirle
+    const officialUrlKeys = new Set(
+      verification.urlVerdicts
+        .filter((v) => v.verdict === "official")
+        .map((v) => urlKey(v.value))
+    );
+    const officialEmails = new Set(
+      verification.emailVerdicts
+        .filter((v) => v.verdict === "official")
+        .map((v) => v.value.toLowerCase().trim())
+    );
+
+    // Resmi doğrulananları deterministik hesaptan çıkar
+    const unverifiedUrls = data.urls.filter(
+      (u) => !officialUrlKeys.has(urlKey(u))
+    );
+    const unverifiedEmails = senderEmails.filter(
+      (e) => !officialEmails.has(e.toLowerCase().trim())
+    );
+    const brandLegit = verification.brandImpersonation === "legitimate";
+
+    const correctedUrlRisk = calculateUrlRisk(unverifiedUrls);
+    const correctedBrand = computeBrandRisk(
+      data.brandNames,
+      unverifiedUrls,
+      unverifiedEmails,
+      hasUrgency,
+      brandLegit
+    );
+    emailSpoofDetails = correctedBrand.emailSpoofDetails;
+
+    // Düzeltilmiş deterministik skor ile Gemini skorunun yükseğini al
+    let urlRiskFinal = Math.max(correctedUrlRisk, gemini.urlRisk);
+    let brandSpoofFinal = Math.max(
+      correctedBrand.brandSpoofRisk,
+      gemini.brandSpoofRisk
+    );
+
+    // Tüm URL'ler / e-postalar Google ile resmi doğrulandıysa, Gemini
+    // yanlışlıkla yüksek skor dönse bile bastır — search verdict'i son sözü söyler.
+    if (data.urls.length > 0 && unverifiedUrls.length === 0) {
+      urlRiskFinal = correctedUrlRisk;
+    }
+    if (
+      brandLegit &&
+      unverifiedUrls.length === 0 &&
+      unverifiedEmails.length === 0
+    ) {
+      brandSpoofFinal = correctedBrand.brandSpoofRisk;
+    }
+
     finalRisks = {
-      urlRisk: Math.max(urlRisk, gemini.urlRisk),
+      urlRisk: urlRiskFinal,
       ibanRisk: Math.max(ibanRisk, gemini.ibanRisk),
       urgencyRisk: Math.max(urgencyRisk, gemini.urgencyRisk),
-      brandSpoofRisk: Math.max(deterministicBrandSpoofRisk, gemini.brandSpoofRisk),
+      brandSpoofRisk: brandSpoofFinal,
     };
 
     reasoning = gemini.reasoning;
     webSearchQueries = gemini.webSearchQueries;
     toolCalls = gemini.toolCalls;
     redFlags.push(...gemini.additionalRedFlags);
+
+    if (officialUrlKeys.size > 0 || officialEmails.size > 0) {
+      console.log(
+        "[ValidationAgent] Search override uygulandı — resmi doğrulanan:",
+        { urls: [...officialUrlKeys], emails: [...officialEmails] }
+      );
+    }
   } catch (error) {
     console.error(
       "Gemini validation başarısız, deterministik sonuç kullanılıyor:",
@@ -411,9 +616,9 @@ export async function validationAgent(
   if (finalRisks.brandSpoofRisk > 40)
     redFlags.push("Bilinen bir marka veya kurum taklidi şüphesi.");
 
-  // E-posta spoof red flag'leri (eğer tespit edildiyse)
-  if (emailSpoofCheck.details.length > 0) {
-    redFlags.push(...emailSpoofCheck.details);
+  // E-posta spoof red flag'leri (search override sonrası — resmi e-postalar hariç)
+  if (emailSpoofDetails.length > 0) {
+    redFlags.push(...emailSpoofDetails);
   }
 
   // Deepfake red flag'leri
@@ -429,9 +634,7 @@ export async function validationAgent(
 
   // E-ticaret red flag'leri
   if (allPricingAnomalies.length > 0) {
-    redFlags.push(
-      `Gerçekçi olmayan fiyat: ${allPricingAnomalies[0]}`
-    );
+    redFlags.push(`Gerçekçi olmayan fiyat: ${allPricingAnomalies[0]}`);
   }
   if (allGiveawayPhrases.length > 0 && hasUrl) {
     redFlags.push(
