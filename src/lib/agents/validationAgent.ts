@@ -1,4 +1,4 @@
-import { ai } from "@/lib/gemini/client";
+import { ai, GeminiUnavailableError } from "@/lib/gemini/client";
 import {
   calculateEcommerceRisk,
   calculateIbanRisk,
@@ -273,6 +273,9 @@ SADECE şu JSON'u döndür, markdown veya ek açıklama EKLEME:
         ),
       });
     } catch (err) {
+      // API tamamen kullanılamıyorsa (kota/aşırı yük) yutma — yukarı ilet.
+      // Faz 1 olmadan search override çalışmaz; meşru içerik yanlış pozitif alır.
+      if (err instanceof GeminiUnavailableError) throw err;
       console.error("[ValidationAgent] Faz 1 (Google Search) hata:", err);
     }
   }
@@ -576,6 +579,10 @@ export async function validationAgent(
       );
     }
   } catch (error) {
+    // API erişilemiyorsa sahte/yanıltıcı sonuç üretme — hatayı yukarı ilet
+    // (route 503 döner). Search override çalışmadan deterministik skorlar
+    // meşru marka + URL içeriğinde yanlış pozitif (yüksek risk) verir.
+    if (error instanceof GeminiUnavailableError) throw error;
     console.error(
       "Gemini validation başarısız, deterministik sonuç kullanılıyor:",
       error
