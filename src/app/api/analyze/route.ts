@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { orchestrator } from "@/lib/agents/orchestrator";
 import { checkRateLimit } from "@/lib/utils/rateLimit";
+import { GeminiUnavailableError } from "@/lib/gemini/client";
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -144,6 +145,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(result);
   } catch (error) {
     console.error("Analyze API error:", error);
+
+    // API kotası/erişimi tükendiyse: sahte "güvenli" sonuç yerine dürüst hata
+    if (error instanceof GeminiUnavailableError) {
+      return NextResponse.json(
+        {
+          error:
+            "Yapay zeka servisine şu an ulaşılamıyor (yoğunluk veya günlük kota limiti). Analiz yapılamadı — lütfen birazdan tekrar deneyin.",
+        },
+        { status: 503 }
+      );
+    }
+
     return NextResponse.json(
       { error: "Analiz sırasında bir hata oluştu." },
       { status: 500 }

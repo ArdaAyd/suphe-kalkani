@@ -1,4 +1,4 @@
-import { ai } from "@/lib/gemini/client";
+import { ai, GeminiUnavailableError } from "@/lib/gemini/client";
 import { ExtractionSchema } from "@/lib/schemas/reportSchema";
 import {
   detectEmails,
@@ -128,6 +128,12 @@ ${input.text ? (input.isAudioTranscript ? `Ses kaydı transkribi — sesli dolan
     result.urls = sanitizeUrls(result.urls);
     return result;
   } catch (error) {
+    // API tamamen kullanılamıyorsa (kota/aşırı yük) sahte sonuç üretme —
+    // hatayı yukarı ilet ki kullanıcıya dürüst bir uyarı gösterilsin.
+    if (error instanceof GeminiUnavailableError) {
+      throw error;
+    }
+
     console.error(
       "Gemini extraction failed, fallback çalıştı:",
       error
