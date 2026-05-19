@@ -2,6 +2,8 @@
 
 Bu doküman ŞüpheKalkanı'nın "agentic AI" iddiasını somut log ve API çıktılarıyla belgeler. Burada gösterilen tüm değerler **gerçek `curl` çağrılarından** alınmıştır; tekrar üretmek için her örneğin yanında komutu bulabilirsiniz.
 
+> **Not:** Bu dokümandaki örnekler farklı zamanlarda yapılan **farklı test çalışmalarına** aittir. Aynı girdi farklı zamanlarda biraz farklı skorlar üretebilir; bu, Gemini'nin canlı Google arama sonuçlarına ve modelin sürümüne bağlıdır. README'deki **Senaryo Matrisi** güncel toplu test sonuçlarını gösterir; bu doküman ise her senaryoda agentic davranışın **nasıl ortaya çıktığını** gösterir.
+
 İçindekiler:
 
 1. ["Agentic" Ne Demek?](#1-agentic-ne-demek)
@@ -147,18 +149,18 @@ check_iban_validity({"iban": "TR33 0006 1005 1978 6457 8413 26"})
 ### Yanıt (özet)
 
 ```
-finalScore: 100 / HIGH
+finalScore: 61 / MEDIUM
 brandSpoofRisk: 100   (Ziraat resmi domain ziraatbank.com.tr, mesajdaki ziraatbank-giris.xyz)
 urlRisk: 80
 ibanRisk: 75
-headline: "Bu mesaj büyük olasılıkla paranızı çalmaya çalışan bir tuzak."
+headline: "Bu mesaj sahte olabilir, kesinlikle linke tıklamayın."
 ```
 
 ### İlginç detay
 
-`check_iban_validity` IBAN'ın matematiksel olarak **geçerli** olduğunu döndürdü. Bu beklendiği gibi olabilir — dolandırıcılar genelde gerçek IBAN kullanır (kendi para alacakları hesap). Sistem buna rağmen `finalScore: 100` döndürdü çünkü diğer sinyaller (domain spoof, URL şüphesi, marka taklidi) ezici çoğunlukla "phishing" diyor.
+`check_iban_validity` IBAN'ın matematiksel olarak **geçerli** olduğunu döndürdü. Bu beklendiği gibi olabilir — dolandırıcılar genelde gerçek IBAN kullanır (kendi para alacakları hesap). Sistem buna rağmen sahte domain ve marka taklidini tespit etti; kullanıcıya **MEDIUM** risk uyarısı verdi. IBAN'ın geçerli çıkması, "kesin tuzak" eşiğinin (HIGH) altında bir sonuç oluşturmaya yetti — ancak kullanıcı yine net biçimde uyarılır.
 
-Bu, hibrit yaklaşımın gücüdür: tek bir testin "temiz" çıkması diğerlerini geçersiz kılmaz.
+Bu, hibrit yaklaşımın nüansıdır: tek bir testin "temiz" çıkması toplam riski etkiler, fakat diğer güçlü sinyaller (domain spoof + brand impersonation) "şüpheli — dikkatli ol" seviyesini garanti eder.
 
 ---
 
