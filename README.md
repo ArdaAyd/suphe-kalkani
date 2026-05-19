@@ -6,6 +6,8 @@
 
 ŞüpheKalkanı; şüpheli mesaj, e-posta, kampanya görseli, ses kaydı veya videoyu analiz ederek dolandırıcılık riskini tespit eden, **Gemini destekli agentic yapay zeka** tabanlı bir güvenlik asistanıdır.
 
+Son yıllarda bu tür dolandırıcılıklar ciddi biçimde artmış, kullanıcılar için somut bir tehdit hâline gelmiştir. Ticaret Bakanlığı, Temmuz 2025'te sosyal medya üzerinden yapılan alışveriş dolandırıcılıkları ve yapay zekâ destekli yatırım aldatmacaları nedeniyle şikâyetlerdeki artışa karşı uyarıda bulundu. ABD'de ise 2025'te sosyal medyada başlayan dolandırıcılıklarda bildirilen kayıp *2,1 milyar dolara* ulaştı; 2025 internet suç raporu yaklaşık *21 milyar dolarlık* toplam kayba işaret etti. Bu tablo, sıradan bir kullanıcının şüpheli içeriği tek başına değerlendirmesini giderek zorlaştırıyor — ŞüpheKalkanı bu nedenle bir kolaylık değil, bir *gereksinimdir*.
+
 Kullanıcı şüpheli bir içeriği yapıştırır ya da yükler; sistem saniyeler içinde sade ve anlaşılır bir risk raporu üretir: risk skoru, risk seviyesi, içeriğin neden şüpheli olduğu ve kullanıcının ne yapması gerektiği.
 
 <p align="center">
@@ -55,13 +57,13 @@ Projede tek bir prompt yerine uzmanlaşmış ajanlardan oluşan bir yapı kullan
 
 ```mermaid
 flowchart TD
-    Input(["👤 Kullanıcı Girdisi<br/>metin / görsel / ses / video"])
-    Input --> Orch["🎯 Orchestrator"]
+    Input(["Kullanıcı Girdisi<br/>metin / görsel / ses / video"])
+    Input --> Orch["Orchestrator"]
 
-    Orch -->|paralel| Audio["🎙 Audio Agent<br/>transkript + vishing sinyalleri"]
-    Orch -->|paralel| Video["🎬 Video Agent<br/>transkript + görsel sinyaller"]
-    Orch -->|paralel| Ext["📄 Extraction Agent<br/>URL · IBAN · marka · e-posta · iddialar"]
-    Orch -->|paralel| Img["🖼 Image Agent<br/>deepfake / AI üretimi"]
+    Orch -->|paralel| Audio["Audio Agent<br/>transkript + vishing sinyalleri"]
+    Orch -->|paralel| Video["Video Agent<br/>transkript + görsel sinyaller"]
+    Orch -->|paralel| Ext["Extraction Agent<br/>URL · IBAN · marka · e-posta · iddialar"]
+    Orch -->|paralel| Img["Image Agent<br/>deepfake / AI üretimi"]
 
     Audio --> Val
     Video --> Val
@@ -500,3 +502,7 @@ Geliştirme sırasında manuel olarak test edilen senaryolar. Her satır farklı
 - **Nursena ÖZKAN**
 
 BTK Akademi + Google Hackathon 2026 — Finans & E-Ticaret kategorisi için hazırlanmıştır.
+
+## Lisans
+
+Bu proje [MIT Lisansı](LICENSE) altında lisanslanmıştır. Kodu serbestçe kullanabilir, değiştirebilir ve dağıtabilirsiniz; tek koşul lisans metnini ve telif notunu kopyanızda korumanızdır.

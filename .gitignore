@@ -39,3 +39,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# yüklenen geçici analiz dosyaları (api/analyze route'u kullanır)
+/tmp/
