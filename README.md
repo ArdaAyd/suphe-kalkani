@@ -3,6 +3,7 @@
 > **Bilgi Teknolojileri ve İletişim Kurumu + BTK Akademi + Google + Girişimcilik Vakfı Hackathon 2026** — Finans & E-Ticaret Kategorisi
 >
 > **Takım:** Şanslı &nbsp;·&nbsp; **Üyeler:** Arda AYDIN · Nursena ÖZKAN
+>
 > **Uygulama Tanıtım Video Linki:** [İzlemek için tıklayın](https://drive.google.com/file/d/13DqqYn7hyDCs5ZrhTzzU8z_r2wN5fXfG/view?usp=sharing)
 
 ŞüpheKalkanı; banka phishing'i, sahte ödeme istekleri, sahte e-ticaret kampanyaları, sahte kargo bildirimleri ve yatırım dolandırıcılıkları gibi tehditlere karşı geliştirilen, Gemini destekli agentic yapay zeka tabanlı bir finans ve e-ticaret güvenlik asistanıdır. Şüpheli mesaj, e-posta, kampanya görseli, ses kaydı veya videoyu analiz ederek içeriğin taşıdığı dolandırıcılık riskini değerlendirir.
