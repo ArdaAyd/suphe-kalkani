@@ -70,12 +70,12 @@ flowchart TD
     Ext --> Val
     Img --> Val
 
-    Val["🛡 Validation Agent"]
-    Val --> P1["🔎 Faz 1: Google Search<br/>marka / URL / e-posta doğrulama"]
-    P1 --> P2["🔧 Faz 2: Function Calling<br/>RDAP · IBAN MOD 97 · URL güvenlik"]
-    P2 --> Judge["⚖️ Judgement Agent<br/>sade Türkçe rapor"]
+    Val["Validation Agent"]
+    Val --> P1["Faz 1: Google Search<br/>marka / URL / e-posta doğrulama"]
+    P1 --> P2["Faz 2: Function Calling<br/>RDAP · IBAN MOD 97 · URL güvenlik"]
+    P2 --> Judge["Judgement Agent<br/>sade Türkçe rapor"]
 
-    Judge --> Out(["📊 Risk Raporu<br/>skor · seviye · kararlar · aksiyonlar"])
+    Judge --> Out(["Risk Raporu<br/>skor · seviye · kararlar · aksiyonlar"])
 
     style Input fill:#f3e8ff,stroke:#9333ea,color:#000
     style Val fill:#fef3c7,stroke:#f59e0b,color:#000
