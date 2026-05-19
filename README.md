@@ -3,10 +3,11 @@
 > **Bilgi Teknolojileri ve İletişim Kurumu + BTK Akademi + Google + Girişimcilik Vakfı Hackathon 2026** — Finans & E-Ticaret Kategorisi
 >
 > **Takım:** Şanslı &nbsp;·&nbsp; **Üyeler:** Arda AYDIN · Nursena ÖZKAN
+> **Uygulama Tanıtım Video Linki:** [İzlemek için tıklayın](https://drive.google.com/file/d/13DqqYn7hyDCs5ZrhTzzU8z_r2wN5fXfG/view?usp=sharing)
 
-ŞüpheKalkanı; şüpheli mesaj, e-posta, kampanya görseli, ses kaydı veya videoyu analiz ederek dolandırıcılık riskini tespit eden, **Gemini destekli agentic yapay zeka** tabanlı bir güvenlik asistanıdır.
+ŞüpheKalkanı; banka phishing'i, sahte ödeme istekleri, sahte e-ticaret kampanyaları, sahte kargo bildirimleri ve yatırım dolandırıcılıkları gibi tehditlere karşı geliştirilen, Gemini destekli agentic yapay zeka tabanlı bir finans ve e-ticaret güvenlik asistanıdır. Şüpheli mesaj, e-posta, kampanya görseli, ses kaydı veya videoyu analiz ederek içeriğin taşıdığı dolandırıcılık riskini değerlendirir.
 
-Son yıllarda bu tür dolandırıcılıklar ciddi biçimde artmış, kullanıcılar için somut bir tehdit hâline gelmiştir. Ticaret Bakanlığı, Temmuz 2025'te sosyal medya üzerinden yapılan alışveriş dolandırıcılıkları ve yapay zekâ destekli yatırım aldatmacaları nedeniyle şikâyetlerdeki artışa karşı uyarıda bulundu. ABD'de ise 2025'te sosyal medyada başlayan dolandırıcılıklarda bildirilen kayıp *2,1 milyar dolara* ulaştı; 2025 internet suç raporu yaklaşık *21 milyar dolarlık* toplam kayba işaret etti. Bu tablo, sıradan bir kullanıcının şüpheli içeriği tek başına değerlendirmesini giderek zorlaştırıyor — ŞüpheKalkanı bu nedenle bir kolaylık değil, bir *gereksinimdir*.
+Son yıllarda bu tür dolandırıcılıklar ciddi biçimde artmış, kullanıcılar için somut bir tehdit hâline gelmiştir. Ticaret Bakanlığı, Temmuz 2025'te sosyal medya üzerinden yapılan alışveriş dolandırıcılıkları ve yapay zekâ destekli yatırım aldatmacaları nedeniyle şikâyetlerdeki artışa karşı uyarıda bulundu. ABD'de ise 2025'te sosyal medyada başlayan dolandırıcılıklarda bildirilen kayıp *2,1 milyar dolara* ulaştı; 2025 internet suç raporu yaklaşık *21 milyar dolarlık* toplam kayba işaret etti.[^1] Bu tablo, sıradan bir kullanıcının şüpheli içeriği tek başına değerlendirmesini giderek zorlaştırıyor — ŞüpheKalkanı bu nedenle bir kolaylık değil, bir *gereksinimdir*.
 
 Kullanıcı şüpheli bir içeriği yapıştırır ya da yükler; sistem saniyeler içinde sade ve anlaşılır bir risk raporu üretir: risk skoru, risk seviyesi, içeriğin neden şüpheli olduğu ve kullanıcının ne yapması gerektiği.
 
@@ -498,3 +499,7 @@ Bilgi Teknolojileri ve İletişim Kurumu + BTK Akademi + Google + Girişimcilik 
 ## Lisans
 
 Bu proje [MIT Lisansı](LICENSE) altında lisanslanmıştır. Kodu serbestçe kullanabilir, değiştirebilir ve dağıtabilirsiniz; tek koşul lisans metnini ve telif notunu kopyanızda korumanızdır.
+
+[^1]: T.C. Ticaret Bakanlığı — sosyal medya üzerinden alışveriş dolandırıcılığı ve yapay zekâ destekli yatırım aldatmacaları nedeniyle şikâyet artışı uyarısı (Temmuz 2025); FTC — sosyal medyada başlayan dolandırıcılıklarda bildirilen kayıplar (2025); FBI IC3 — 2025 İnternet Suç Raporu.
+
+
