@@ -542,6 +542,102 @@ export default function Home() {
                   )}
                 </div>
 
+                {/* Agentic AI Aktivitesi — Gemini'nin canlı yaptığı eylemler */}
+                {((result.validation.webSearchQueries?.length ?? 0) > 0 ||
+                  (result.validation.toolCalls?.length ?? 0) > 0 ||
+                  (result.validation.deepfakeSignals?.length ?? 0) > 0 ||
+                  (result.extraction.senderEmails?.length ?? 0) > 0) && (
+                  <div>
+                    <p className="text-zinc-400 text-xs mb-3">🤖 Agentic AI Aktivitesi</p>
+                    <div className="space-y-3">
+                      {/* Canlı Google aramaları (Faz 1 — grounding) */}
+                      {(result.validation.webSearchQueries?.length ?? 0) > 0 && (
+                        <div className="rounded-xl bg-blue-500/10 border border-blue-500/30 p-3">
+                          <p className="text-xs text-blue-300 mb-2 font-medium">
+                            🔎 Gemini&apos;nin Canlı Google Aramaları ({result.validation.webSearchQueries!.length})
+                          </p>
+                          <ul className="space-y-1.5">
+                            {result.validation.webSearchQueries!.map((q, i) => (
+                              <li
+                                key={i}
+                                className="text-sm bg-zinc-800/70 rounded-lg px-3 py-2 font-mono text-zinc-200 break-all"
+                              >
+                                &quot;{q}&quot;
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="text-[11px] text-zinc-500 mt-2">
+                            Gemini, marka ve kampanya iddialarını doğrulamak için canlı internet araması yaptı.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Çağrılan güvenlik araçları (Faz 2 — function calling) */}
+                      {(result.validation.toolCalls?.length ?? 0) > 0 && (
+                        <div className="rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3">
+                          <p className="text-xs text-emerald-300 mb-2 font-medium">
+                            🔧 Çağrılan Güvenlik Araçları ({result.validation.toolCalls!.length})
+                          </p>
+                          <ul className="space-y-1.5">
+                            {result.validation.toolCalls!.map((c, i) => (
+                              <li
+                                key={i}
+                                className="text-sm bg-zinc-800/70 rounded-lg px-3 py-2 font-mono text-zinc-200 break-all"
+                              >
+                                {c}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="text-[11px] text-zinc-500 mt-2">
+                            Gemini function calling ile domain yaşı, IBAN geçerliliği ve URL güvenlik araçlarını çağırdı.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* AI / Deepfake sinyalleri */}
+                      {(result.validation.deepfakeSignals?.length ?? 0) > 0 && (
+                        <div className="rounded-xl bg-purple-500/10 border border-purple-500/30 p-3">
+                          <p className="text-xs text-purple-300 mb-2 font-medium">
+                            🧠 AI / Deepfake Sinyalleri ({result.validation.deepfakeSignals!.length})
+                          </p>
+                          <ul className="space-y-1.5">
+                            {result.validation.deepfakeSignals!.map((s, i) => (
+                              <li
+                                key={i}
+                                className="text-sm bg-zinc-800/70 rounded-lg px-3 py-2 text-zinc-200"
+                              >
+                                {s}
+                              </li>
+                            ))}
+                          </ul>
+                          <p className="text-[11px] text-zinc-500 mt-2">
+                            İçerikte yapay zeka ile üretilmiş veya manipüle edilmiş işaretler tespit edildi.
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Gönderici e-posta adresleri */}
+                      {(result.extraction.senderEmails?.length ?? 0) > 0 && (
+                        <div className="rounded-xl bg-zinc-700/50 border border-zinc-600 p-3">
+                          <p className="text-xs text-zinc-400 mb-2 font-medium">
+                            ✉️ Gönderici E-posta Adresleri ({result.extraction.senderEmails!.length})
+                          </p>
+                          <ul className="space-y-1.5">
+                            {result.extraction.senderEmails!.map((e, i) => (
+                              <li
+                                key={i}
+                                className="text-sm bg-zinc-800/70 rounded-lg px-3 py-2 font-mono text-zinc-200 break-all"
+                              >
+                                {e}
+                              </li>
+                            ))}
+                          </ul>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
                 {/* Tespit edilen veriler */}
                 <div>
                   <p className="text-zinc-400 text-xs mb-3">Tespit Edilen Veriler</p>

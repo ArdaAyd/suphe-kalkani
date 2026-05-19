@@ -1,8 +1,16 @@
 # ŞüpheKalkanı
 
+> **BTK Akademi + Google Hackathon 2026** — Finans & E-Ticaret Kategorisi
+>
+> **Takım:** Şanslı &nbsp;·&nbsp; **Üyeler:** Arda AYDIN · Nursena ÖZKAN
+
 ŞüpheKalkanı; şüpheli mesaj, e-posta, kampanya görseli, ses kaydı veya videoyu analiz ederek dolandırıcılık riskini tespit eden, **Gemini destekli agentic yapay zeka** tabanlı bir güvenlik asistanıdır.
 
 Kullanıcı şüpheli bir içeriği yapıştırır ya da yükler; sistem saniyeler içinde sade ve anlaşılır bir risk raporu üretir: risk skoru, risk seviyesi, içeriğin neden şüpheli olduğu ve kullanıcının ne yapması gerektiği.
+
+<p align="center">
+  <img src="docs/screenshots/01-hero-high-risk.jpeg" alt="ŞüpheKalkanı yüksek risk tespiti — sahte iPhone kampanyası" width="600">
+</p>
 
 ## Problem
 
@@ -45,24 +53,33 @@ Kullanıcı **metin, görsel, ses veya video** gönderir. İçerik, uzmanlaşmı
 
 Projede tek bir prompt yerine uzmanlaşmış ajanlardan oluşan bir yapı kullanılmıştır.
 
-```txt
-Kullanıcı girdisi  (metin / görsel / ses / video)
-        │
-        ▼
-   Orchestrator
-        │
-        ├─ AudioAnalysisAgent     ses  → transkript + vishing sinyalleri
-        ├─ VideoAnalysisAgent     video → transkript + görsel sinyaller
-        ├─ Extraction Agent       metin/görsel → URL, IBAN, marka, e-posta, iddialar
-        └─ ImageAnalysisAgent     görsel → deepfake / AI üretimi riski
-        │
-        ▼
-  Validation Agent
-        ├─ Faz 1: Google Search ile URL / marka / e-posta doğrulama
-        └─ Faz 2: Function calling araçları (domain yaşı, IBAN, URL güvenliği)
-        │
-        ▼
-  Judgement Agent  →  Risk Raporu
+```mermaid
+flowchart TD
+    Input(["👤 Kullanıcı Girdisi<br/>metin / görsel / ses / video"])
+    Input --> Orch["🎯 Orchestrator"]
+
+    Orch -->|paralel| Audio["🎙 Audio Agent<br/>transkript + vishing sinyalleri"]
+    Orch -->|paralel| Video["🎬 Video Agent<br/>transkript + görsel sinyaller"]
+    Orch -->|paralel| Ext["📄 Extraction Agent<br/>URL · IBAN · marka · e-posta · iddialar"]
+    Orch -->|paralel| Img["🖼 Image Agent<br/>deepfake / AI üretimi"]
+
+    Audio --> Val
+    Video --> Val
+    Ext --> Val
+    Img --> Val
+
+    Val["🛡 Validation Agent"]
+    Val --> P1["🔎 Faz 1: Google Search<br/>marka / URL / e-posta doğrulama"]
+    P1 --> P2["🔧 Faz 2: Function Calling<br/>RDAP · IBAN MOD 97 · URL güvenlik"]
+    P2 --> Judge["⚖️ Judgement Agent<br/>sade Türkçe rapor"]
+
+    Judge --> Out(["📊 Risk Raporu<br/>skor · seviye · kararlar · aksiyonlar"])
+
+    style Input fill:#f3e8ff,stroke:#9333ea,color:#000
+    style Val fill:#fef3c7,stroke:#f59e0b,color:#000
+    style P1 fill:#dbeafe,stroke:#2563eb,color:#000
+    style P2 fill:#d1fae5,stroke:#059669,color:#000
+    style Out fill:#fce7f3,stroke:#db2777,color:#000
 ```
 
 ### Orchestrator
@@ -103,6 +120,147 @@ Validation Agent, Gemini function calling ile aşağıdaki araçları çağırı
 | `check_domain_age` | Domainin RDAP üzerinden tescil yaşını öğrenir — çok yeni domainler yüksek risk taşır. |
 | `check_iban_validity` | IBAN'ı ISO 7064 MOD 97-10 algoritmasıyla matematiksel olarak doğrular. |
 | `check_url_safety` | URL'i şüpheli TLD, derin alt domain, IP adresi, kısaltma servisi gibi göstergelere göre analiz eder. |
+
+## Risk Skorlama
+
+Final risk skoru (0–100), altı risk boyutunun **ağırlıklı toplamı** + bağlama özel **kombinasyon bonusu** ile hesaplanır. Ağırlıklar içerik türüne göre değişir: ses transkriptinde URL görünmediği için aciliyet (urgency) baskın sinyaldir.
+
+### Boyut ağırlıkları
+
+| Boyut | Metin / Görsel / Video | Ses (vishing) |
+|---|---|---|
+| URL Riski | 0.18 | 0.18 |
+| IBAN Riski | 0.22 | 0.22 |
+| Aciliyet Riski | 0.10 | **0.35** |
+| Marka Taklidi Riski | 0.22 | 0.15 |
+| E-Ticaret Riski | 0.18 | — |
+| AI / Deepfake Riski | 0.10 | 0.10 |
+
+### Kombinasyon bonusları
+
+Bazı sinyaller tek başlarına değil **birlikte göründüklerinde** dolandırıcılık ihtimalini katlar. Bu durumlarda ağırlıklı skora ek bonus eklenir:
+
+| Kombinasyon | Bonus |
+|---|---|
+| E-ticaret riski ≥ 70 **+** URL riski > 30 (gerçekçi olmayan fiyat + şüpheli link) | +30 |
+| Deepfake riski ≥ 60 **+** marka taklidi ≥ 40 (AI ile marka kılığına girme) | +30 |
+| Marka taklidi ≥ 80 **+** URL var (klasik phishing) | +25 |
+| Aciliyet > 40 **+** URL var (vishing — sesli dolandırıcılıkta link talebi) | +25 |
+| IBAN riski > 50 **+** aciliyet > 30 (ödeme baskısı) | +20 |
+| Deepfake riski ≥ 80 (tek başına çok güçlü AI sinyali) | +20 |
+| E-ticaret riski ≥ 60 **+** aciliyet > 30 (sahte kampanya + panik) | +20 |
+| URL riski > 70 **+** marka taklidi > 50 | +20 |
+| URL riski > 70 **+** IBAN riski > 70 | +15 |
+| Deepfake riski ≥ 45 (orta düzey AI şüphesi) | +10 |
+
+Final skor `[0, 100]` aralığına klamplanır.
+
+### Risk seviyesi eşikleri
+
+| Skor | Seviye |
+|---|---|
+| 0 – 34 | **LOW** — güvenli görünüyor |
+| 35 – 69 | **MEDIUM** — şüpheli işaretler var |
+| 70 – 100 | **HIGH** — büyük olasılıkla dolandırıcılık |
+
+### Hibrit yaklaşım
+
+Her boyut iki kaynaktan gelir: **deterministik kurallar** (sözlük, regex, IBAN checksum, TLD listesi) ve **Gemini'nin bağlamsal değerlendirmesi**. İki skor `Math.max` ile birleştirilir — yani deterministik bir kural risk verdiyse, Gemini onu **düşüremez**. Tek istisna: Faz 1 Google Search'ün bir domaini **resmi olarak doğrulaması** durumunda heuristik (`marka + URL bir arada = 60`) skoru iptal edilir (yanlış pozitif koruması).
+
+<p align="center">
+  <img src="docs/screenshots/03-risk-dimensions.png" alt="6 risk boyutu — deepfake video analizinde" width="550">
+  <br>
+  <sub>Deepfake bir Trendyol müşteri hizmetleri videosu için risk boyutları: Aciliyet 100, Marka Taklidi 100, AI/Deepfake 80 — final skor 100/HIGH.</sub>
+</p>
+
+## Agentic Kanıtlar
+
+ŞüpheKalkanı'nı bir LLM wrapper'dan ayıran şey, Gemini'nin analiz sırasında **otonom olarak araç çağırması ve canlı internet araması yapması**dır. Aşağıda gerçek bir analizde Gemini'nin ürettiği eylemler gösterilmiştir.
+
+### Örnek 1 — Sahte e-ticaret kampanyası
+
+Girdi (sahte kampanya görseli üzerinden):
+```
+Sadece Bugün! iPhone 15 Pro Max Kampanyası
+SADECE 9.999 TL — Stoklar tükenmeden hemen başvurun!
+%70 indirim · Hemen Tıkla
+```
+
+Gemini'nin **canlı Google aramaları** (Faz 1 — grounding):
+```
+→ "iPhone 15 Pro Max piyasa fiyatı"
+→ "iPhone 15 Pro Max 9.999 TL kampanyası gerçek mi"
+→ "Apple resmi satıcı kampanya"
+```
+
+Gemini'nin **çağırdığı araçlar** (Faz 2 — function calling):
+```
+→ check_url_safety({...})        # kampanya görselindeki link analiz edilir
+→ check_domain_age({...})        # domain yaşı kontrol edilir
+```
+
+Sonuç: `finalScore: 99 / HIGH` — *"Bu, sizi dolandırmaya çalışan tehlikeli bir sahte kampanya!"* Piyasa fiyatının çok altında bir iPhone 15 Pro Max ilanı (gerçek piyasa fiyatı ~60.000–80.000 TL), yapay aciliyet ifadeleri ve abartılı indirim oranı bir araya gelerek çok yüksek risk skoruna ulaşıyor.
+
+### Örnek 2 — Banka phishing'i
+
+Girdi:
+```
+Ziraat Bankası hesabınız donduruldu! Hemen güncelleyin:
+http://ziraatbank-giris.xyz IBAN: TR33 0006 1005 1978 6457 8413 26
+```
+
+Canlı Google araması:
+```
+→ "Ziraat Bankası resmi site"
+```
+
+Çağırdığı araçlar:
+```
+→ check_domain_age({"domain": "ziraatbank-giris.xyz"})
+→ check_url_safety({"url": "http://ziraatbank-giris.xyz"})
+→ check_iban_validity({"iban": "TR33 0006 1005 1978 6457 8413 26"})
+```
+
+Sonuç: `finalScore: 61 / MEDIUM` — sahte domain ve marka taklidi tespit ediliyor, ancak IBAN'ın matematiksel olarak geçerli çıkması (uydurulmuş değil) skoru "kesin tuzak" eşiğinin altında, "şüpheli — dikkatli ol" seviyesinde tutuyor. Kullanıcı yine net biçimde uyarılır.
+
+### Örnek 3 — Gerçek banka bildirimi (yanlış pozitif testi)
+
+Girdi (gerçek Yapı Kredi bilgilendirme SMS'i):
+```
+Hesabınıza tanımlanan bankacılık fırsatlarından ve Play kampanyalarından
+faydalanabilirsin. Detaylı bilgi için: www.yapikrediplay.com.tr
+Yapı Kredi Mobil'i İndir: yukle.yapikredi.com
+SMS almamak için H yazın 4944'e gönder.
+```
+
+Faz 1 Google Search'ün ürettiği yapısal verdict:
+```json
+{
+  "brandImpersonation": "legitimate",
+  "urlVerdicts": [
+    { "url": "www.yapikrediplay.com.tr", "verdict": "official",
+      "note": "Yapı Kredi'nin resmi kampanya alanı" },
+    { "url": "yukle.yapikredi.com", "verdict": "official",
+      "note": "Yapı Kredi'nin resmi mobil uygulama indirme alanı" }
+  ],
+  "emailVerdicts": []
+}
+```
+
+Bu doğrulama sayesinde, normalde *"marka + iki URL bir arada + indirme talebi"* heuristiğinin tetikleyeceği "marka taklidi şüphesi" **iptal edilir**. Sonuç: `finalScore: 4 / LOW` — *"Bu içerik şu an için güvenli görünüyor."* Yanlış pozitif kesin biçimde önlenmiş; gerçek banka bildirimleri rahat bırakılıyor.
+
+### Agentic UI Paneli
+
+Tüm bu kanıtlar arayüzde **Teknik Detaylar** sekmesinde gösterilir. Jüri ve teknik kullanıcı Gemini'nin attığı her adımı somut olarak görebilir.
+
+<p align="center">
+  <img src="docs/screenshots/04-agentic-evidence.png" alt="Agentic AI aktivitesi paneli — AI/Deepfake sinyalleri ve Gemini analiz notu" width="550">
+  <br>
+  <sub>Agentic AI Aktivitesi paneli — Gemini'nin tespit ettiği deepfake sinyalleri, analiz notu ve çıkarılan veriler.</sub>
+</p>
+
+> Daha fazla örnek (deepfake video, bilinmeyen marka, sahte kampanya), tam JSON yanıtları ve sunucu logu için: **[docs/AGENTIC_PROOF.md](docs/AGENTIC_PROOF.md)**.
+> Mimari iç işleyişi (risk formülü, agent dataflow, hata yönetimi, tasarım kararları) için: **[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)**.
 
 ## Kullanılan Teknolojiler
 
@@ -194,39 +352,136 @@ Metin, görsel, ses ve/veya videoyu analiz eder.
 
 Yalnızca metin için `application/json` ile `{ "input": "..." }` gövdesi de gönderilebilir.
 
-Örnek yanıt (kısaltılmış):
+Örnek tam yanıt (üç ana blok — `extraction`, `validation`, `report` — ve girdi türüne göre opsiyonel `audio` / `video` blokları):
 
 ```json
 {
-  "report": {
-    "finalScore": 82,
-    "riskLevel": "HIGH",
-    "headline": "Bu mesaj büyük olasılıkla bir dolandırıcılık girişimi.",
-    "summary": "Banka taklidi yapan sahte bir bağlantı ve aciliyet baskısı tespit edildi.",
+  "extraction": {
+    "textSummary": "Ziraat Bankası adıyla gönderilmiş, hesap dondurma uyarısı içeren ve şüpheli bir bağlantıya yönlendiren bir mesaj.",
+    "urls": ["http://ziraatbank-giris.xyz"],
+    "ibans": ["TR33 0006 1005 1978 6457 8413 26"],
+    "phones": [],
+    "brandNames": ["Ziraat Bankası"],
+    "senderEmails": [],
+    "claims": ["Hesabınız donduruldu"],
+    "urgencyPhrases": ["Hemen güncelleyin"],
+    "priceClaims": [],
+    "giveawayPhrases": [],
+    "discountClaims": []
+  },
+  "validation": {
+    "urlRisk": 80,
+    "ibanRisk": 75,
+    "urgencyRisk": 40,
+    "brandSpoofRisk": 100,
+    "ecommerceRisk": 0,
+    "deepfakeRisk": 0,
+    "deepfakeSignals": [],
     "redFlags": [
-      "Şüpheli veya resmi olmayan bağlantı tespit edildi.",
-      "Aciliyet baskısı oluşturmaya yönelik ifadeler mevcut."
+      "Şüpheli üst düzey domain uzantısı (.xyz)",
+      "Domain adında tire (-) karakteri",
+      "Şifresiz HTTP bağlantısı",
+      "URL'nin Ziraat Bankası'nın resmi domaini olmaması",
+      "IBAN paylaşımı içeriyor — doğrudan ödeme talebi."
     ],
+    "reasoning": "URL analizi sonucunda şüpheli domain uzantısı, tire karakteri ve HTTP kullanımı yüksek risk oluşturmaktadır. Ziraat Bankası'nın resmi domain'i ziraatbank.com.tr olmasına rağmen mesajdaki URL ziraatbank-giris.xyz şeklinde sahte bir adrestir.",
+    "webSearchQueries": ["Ziraat Bankası resmi site"],
+    "toolCalls": [
+      "check_domain_age({\"domain\":\"ziraatbank-giris.xyz\"})",
+      "check_url_safety({\"url\":\"http://ziraatbank-giris.xyz\"})",
+      "check_iban_validity({\"iban\":\"TR33 0006 1005 1978 6457 8413 26\"})"
+    ]
+  },
+  "report": {
+    "finalScore": 100,
+    "riskLevel": "HIGH",
+    "headline": "Bu mesaj büyük olasılıkla paranızı çalmaya çalışan bir tuzak.",
+    "summary": "Size Ziraat Bankası'ndan geldiği iddia edilen mesaj sahte bir adrese yönlendiriyor. Bilgileriniz çalınmak isteniyor.",
+    "redFlags": ["Şüpheli üst düzey domain uzantısı (.xyz)", "..."],
     "recommendedActions": [
-      "Bağlantılara tıklamayın; adresi tarayıcınıza elle yazın.",
-      "Kurumun resmi müşteri hizmetleriyle iletişime geçin."
+      "Bu bağlantıya tıklamayın.",
+      "Ziraat Bankası işlemleriniz için sadece ziraatbank.com.tr adresini kullanın.",
+      "Bu mesajı bankanın dolandırıcılık bildirim hattına iletin."
     ],
-    "confidence": 88
+    "confidence": 95
   }
 }
 ```
+
+**Validation bloğundaki agentic alanlar:**
+
+| Alan | İçerik |
+|---|---|
+| `webSearchQueries` | Faz 1'de Gemini'nin canlı yaptığı Google arama sorguları |
+| `toolCalls` | Faz 2'de Gemini'nin çağırdığı güvenlik araçları (argümanlarla birlikte) |
+| `deepfakeSignals` | Görsel/ses analizinden çıkan deepfake/AI üretimi sinyalleri |
+| `reasoning` | Gemini'nin nihai değerlendirme metni |
+
+**Hata yanıtları:**
+
+| HTTP | Anlamı |
+|---|---|
+| 400 | Analiz edilecek içerik gönderilmedi. |
+| 429 | Aynı IP'den dakikada en fazla 5 analiz sınırı aşıldı. |
+| 503 | Yapay zeka servisine ulaşılamadı (tüm API anahtarları doldu veya model yanıt vermedi). Sahte güvenli sonuç üretmek yerine açık hata döner. |
+| 500 | Beklenmedik sunucu hatası. |
 
 ## Demo Senaryoları
 
 `demo/` klasöründe ürünü hızlıca denemek için hazır örnek dosyalar bulunur — sahte ve gerçek banka / e-ticaret içerikleri (görsel ve video). `gerçek` örnekler, aracın meşru kurumsal mesajlarda yanlış pozitif vermediğini doğrular. Ayrıntılar `demo/README.md` içindedir.
 
-Metin tabanlı hızlı örnekler:
+### Senaryo Matrisi
+
+Geliştirme sırasında manuel olarak test edilen senaryolar. Her satır farklı bir dolandırıcılık tipini veya yanlış pozitif testini temsil eder. Skorlar Gemini'nin sürümüne ve canlı Google sonuçlarına bağlı olarak ufak farklarla değişebilir.
+
+| Kategori | Senaryo | Beklenen | Gerçekleşen | Sonuç |
+|---|---|---|---|---|
+| Banka phishing | Sahte Ziraat link + IBAN | MEDIUM | 61 / MEDIUM | ✅ |
+| Sahte e-ticaret kampanyası | iPhone 15 Pro 9.999 TL | HIGH | 99 / HIGH | ✅ |
+| Sahte e-posta gönderici | `kampanya@amaz0n-destek-mail.com` | HIGH | 89 / HIGH | ✅ |
+| Bilinmeyen marka taklidi | Hopi puanlarınız + .xyz link | HIGH | 70 / HIGH | ✅ |
+| Vishing (ses kaydı) | Sahte banka müşteri hizmetleri | HIGH | 78 / HIGH | ✅ |
+| Deepfake video | AI üretilmiş müşteri temsilcisi | HIGH | 85 / HIGH | ✅ |
+| **Yanlış pozitif testi** | Gerçek banka bildirimi | LOW | 4 / LOW | ✅ |
+| **Yanlış pozitif testi** | Gerçek Teknosa kampanya reklamı | LOW | 13 / LOW | ✅ |
+| **Yanlış pozitif testi** | Düz "test mesajı" | LOW | < 20 / LOW | ✅ |
+
+**Yanlış pozitif testleri** kasıtlı eklenmiştir: bir dolandırıcılık tespit aracının asıl değeri sadece **yakalayabilmek** değil, **meşru mesajları rahat bırakabilmek**tir. Gerçek Trendyol bildirim e-postasını veya PTT kargo mesajını yanlışlıkla HIGH işaretleyen sistem kısa sürede kullanışsız hale gelir.
+
+<table>
+  <tr>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/01-hero-high-risk.jpeg" alt="Sahte iPhone kampanyası — YÜKSEK RİSK" width="100%"><br>
+      <sub><b>Sahte kampanya</b> — iPhone 15 Pro Max 9.999 TL → <b>YÜKSEK RİSK</b></sub>
+    </td>
+    <td align="center" width="50%">
+      <img src="docs/screenshots/02-false-positive-test.jpeg" alt="Gerçek Teknosa kampanyası — DÜŞÜK RİSK" width="100%"><br>
+      <sub><b>Gerçek kampanya</b> — Teknosa indirim → <b>DÜŞÜK RİSK</b> (yanlış pozitif önlendi)</sub>
+    </td>
+  </tr>
+</table>
+
+### Metin Tabanlı Hızlı Örnekler
 
 | İçerik | Beklenen sonuç |
 |---|---|
 | `Merhaba, bu sadece bir test mesajıdır.` | LOW |
 | `Trendyol indirim kuponunuz hazır. http://bit.ly/firsat-link adresine tıklayın.` | MEDIUM |
 | `PTT kargonuz beklemede. http://bit.ly/sahte-link adresinden ödeme yapın. IBAN TR12...` | HIGH |
+
+## Sınırlamalar
+
+ŞüpheKalkanı dolandırıcılık tespitinde güçlü sinyaller verir; ancak şu anki haliyle bazı sınırları vardır. Bunları açıkça paylaşıyoruz çünkü kullanıcının sistemin kapsamını ve kapasitesini bilmesi önemlidir.
+
+- **Yerel marka odaklılığı.** Bilinen marka sözlüğü ağırlıklı olarak Türkiye pazarındaki bankalar, e-ticaret siteleri, kargo, market ve devlet kurumlarını kapsar. Bu sözlükte olmayan markalar için Gemini canlı Google araması yapar — yine de uluslararası niş markalarda tespit kalitesi yerel markalara göre daha düşüktür.
+- **Ses ve video boyutu sınırı.** Ses ve video dosyaları analiz için Gemini'ye inline olarak gönderilir; dosya başına ~15 MB sınırı vardır. Daha büyük dosyaların önce kırpılması veya sıkıştırılması gerekir.
+- **Deepfake tespitinin karakteristiği.** AI ile üretilmiş video tespiti, görüntü kalitesi ve aydınlatma koşullarına duyarlıdır. Düşük ışıkta çekilmiş gerçek videolarda nadiren "yapay görünüm" şüphesi raporlanabilir (yanlış pozitif); yüksek kaliteli yeni nesil deepfake'lerde sinyal zayıflayabilir (yanlış negatif).
+- **Path tabanlı marka enjeksiyonu.** Hostname'de değil de URL yolunda marka adı geçen kalıplar (örn: `attacker.xyz/ziraatbank.com.tr/login`) marka taklidi olarak işaretlenmez. Bu örüntü, hostname'i öne çıkardığı için tarayıcı adres çubuğunda da kolayca fark edilir; gerçek dolandırıcılıkta ana risk değildir, fakat sistemin bir kör noktasıdır.
+- **Sesli transkript kalitesi.** Vishing tespiti Gemini'nin transkripsiyon çıktısına dayanır; gürültülü kayıtlarda, ağır aksanda veya birden çok konuşmacının iç içe geçtiği seslerde transkript kalitesi düşebilir ve risk skoru altında kalabilir.
+- **Tek seferlik analiz.** Sonuçlar saklanmaz; aynı içeriği iki kez gönderdiğinizde sistem her seferinde yeniden çalışır (cache yok). Aynı IBAN/URL'nin sürekli aynı kullanıcıyla görünmesi gibi zaman serisi kalıpları izlenmez.
+- **Bilinen tehdit veritabanı entegrasyonu yok.** Google Safe Browsing, VirusTotal gibi raporlanmış zararlı URL veritabanlarına bağlı değildir. Bu, bilinmeyen yeni dolandırıcılık sitelerinde fark yaratan tercihtir: heuristik + canlı Google araması, henüz raporlanmamış dolandırıcılıkları da yakalayabilir. Ek bir veri kaynağı ileride entegre edilebilir.
+- **Free tier API kotası.** Geliştirme ortamında ücretsiz Gemini API anahtarı kullanıldığında her anahtarın günlük çağrı sınırı vardır. Çoklu anahtar rotasyonu bu sınırı esnetir, ancak yüksek hacimli kullanım için ücretli plan gerekir.
+- **Tek dil odaklı raporlama.** Tüm risk raporları Türkçe üretilir. Diğer dillerde gönderilen içerik analiz edilebilir, ancak son rapor yine Türkçedir.
 
 ## Dayanıklılık ve Güvenlik
 
@@ -236,3 +491,12 @@ Metin tabanlı hızlı örnekler:
 - **Dürüst hata yönetimi** — yapay zeka servisine hiç ulaşılamadığında sistem sahte bir "güvenli" sonuç üretmez; kullanıcıya açıkça "analiz yapılamadı" uyarısı gösterir.
 - **Fallback** — Gemini bozuk yanıt verdiğinde (servis erişilebilirken) deterministik analiz devreye girer.
 - **Yüklenen dosyalar** geçici olarak işlenir ve analiz sonrası silinir; API anahtarları yalnızca ortam değişkeninde tutulur.
+
+## Takım
+
+**Takım: Şanslı**
+
+- **Arda AYDIN**
+- **Nursena ÖZKAN**
+
+BTK Akademi + Google Hackathon 2026 — Finans & E-Ticaret kategorisi için hazırlanmıştır.

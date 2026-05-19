@@ -402,18 +402,38 @@ Araçları çağırdıktan sonra, SADECE aşağıdaki JSON'u döndür. Markdown 
     finalText = response1.text;
   }
 
-  if (!finalText) throw new Error("Gemini boş cevap döndürdü");
+  if (!finalText) {
+    // Boş cevap = Gemini bu sorgu için kullanılamaz. Sessizce deterministik
+    // fallback'e düşmek yerine 503 ile dürüst hata dön (commit ccc342f felsefesi).
+    throw new GeminiUnavailableError(
+      "Gemini doğrulama agent'ı boş cevap döndürdü."
+    );
+  }
 
-  const parsed = JSON.parse(cleanJson(finalText));
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(cleanJson(finalText));
+  } catch (err) {
+    // Malformed JSON = güvenilmez Gemini çıktısı. Skor üretmek yerine hata fırlat.
+    throw new GeminiUnavailableError(
+      `Gemini doğrulama çıktısı JSON olarak parse edilemedi: ${
+        err instanceof Error ? err.message : String(err)
+      }`
+    );
+  }
+
+  const additionalRedFlags: string[] = Array.isArray(parsed.additionalRedFlags)
+    ? (parsed.additionalRedFlags as unknown[]).filter(
+        (f): f is string => typeof f === "string"
+      )
+    : [];
 
   return {
     urlRisk: safeScore(parsed.urlRisk),
     ibanRisk: safeScore(parsed.ibanRisk),
     urgencyRisk: safeScore(parsed.urgencyRisk),
     brandSpoofRisk: safeScore(parsed.brandSpoofRisk),
-    additionalRedFlags: Array.isArray(parsed.additionalRedFlags)
-      ? parsed.additionalRedFlags.filter((f: unknown) => typeof f === "string")
-      : [],
+    additionalRedFlags,
     reasoning:
       typeof parsed.reasoning === "string" ? parsed.reasoning : "",
     webSearchQueries,
