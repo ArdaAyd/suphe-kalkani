@@ -1,6 +1,6 @@
 # ŞüpheKalkanı
 
-> **BTK Akademi + Google Hackathon 2026** — Finans & E-Ticaret Kategorisi
+> **Bilgi Teknolojileri ve İletişim Kurumu + BTK Akademi + Google + Girişimcilik Vakfı Hackathon 2026** — Finans & E-Ticaret Kategorisi
 >
 > **Takım:** Şanslı &nbsp;·&nbsp; **Üyeler:** Arda AYDIN · Nursena ÖZKAN
 
@@ -395,17 +395,17 @@ Yalnızca metin için `application/json` ile `{ "input": "..." }` gövdesi de g�
     ]
   },
   "report": {
-    "finalScore": 100,
-    "riskLevel": "HIGH",
-    "headline": "Bu mesaj büyük olasılıkla paranızı çalmaya çalışan bir tuzak.",
-    "summary": "Size Ziraat Bankası'ndan geldiği iddia edilen mesaj sahte bir adrese yönlendiriyor. Bilgileriniz çalınmak isteniyor.",
+    "finalScore": 61,
+    "riskLevel": "MEDIUM",
+    "headline": "Bu mesaj sahte olabilir, kesinlikle linke tıklamayın.",
+    "summary": "Size Ziraat Bankası'ndan geldiği iddia edilen mesaj sahte bir adrese yönlendiriyor. IBAN matematiksel olarak geçerli görünse bile, URL Ziraat Bankası'nın resmi adresi değil.",
     "redFlags": ["Şüpheli üst düzey domain uzantısı (.xyz)", "..."],
     "recommendedActions": [
       "Bu bağlantıya tıklamayın.",
       "Ziraat Bankası işlemleriniz için sadece ziraatbank.com.tr adresini kullanın.",
       "Bu mesajı bankanın dolandırıcılık bildirim hattına iletin."
     ],
-    "confidence": 95
+    "confidence": 90
   }
 }
 ```
@@ -443,12 +443,12 @@ Geliştirme sırasında manuel olarak test edilen senaryolar. Her satır farklı
 | Sahte e-posta gönderici | `kampanya@amaz0n-destek-mail.com` | HIGH | 89 / HIGH | ✅ |
 | Bilinmeyen marka taklidi | Hopi puanlarınız + .xyz link | HIGH | 70 / HIGH | ✅ |
 | Vishing (ses kaydı) | Sahte banka müşteri hizmetleri | HIGH | 78 / HIGH | ✅ |
-| Deepfake video | AI üretilmiş müşteri temsilcisi | HIGH | 85 / HIGH | ✅ |
+| Deepfake video | AI üretilmiş müşteri temsilcisi | HIGH | 100 / HIGH | ✅ |
 | **Yanlış pozitif testi** | Gerçek banka bildirimi | LOW | 4 / LOW | ✅ |
 | **Yanlış pozitif testi** | Gerçek Teknosa kampanya reklamı | LOW | 13 / LOW | ✅ |
 | **Yanlış pozitif testi** | Düz "test mesajı" | LOW | < 20 / LOW | ✅ |
 
-**Yanlış pozitif testleri** kasıtlı eklenmiştir: bir dolandırıcılık tespit aracının asıl değeri sadece **yakalayabilmek** değil, **meşru mesajları rahat bırakabilmek**tir. Gerçek Trendyol bildirim e-postasını veya PTT kargo mesajını yanlışlıkla HIGH işaretleyen sistem kısa sürede kullanışsız hale gelir.
+**Yanlış pozitif testleri** kasıtlı eklenmiştir: bir dolandırıcılık tespit aracının asıl değeri sadece **yakalayabilmek** değil, **meşru mesajları rahat bırakabilmek**tir. Gerçek bir Yapı Kredi bilgilendirme SMS'ini veya meşru bir Teknosa kampanya görselini yanlışlıkla HIGH işaretleyen sistem kısa sürede kullanışsız hale gelir.
 
 <table>
   <tr>
@@ -462,14 +462,6 @@ Geliştirme sırasında manuel olarak test edilen senaryolar. Her satır farklı
     </td>
   </tr>
 </table>
-
-### Metin Tabanlı Hızlı Örnekler
-
-| İçerik | Beklenen sonuç |
-|---|---|
-| `Merhaba, bu sadece bir test mesajıdır.` | LOW |
-| `Trendyol indirim kuponunuz hazır. http://bit.ly/firsat-link adresine tıklayın.` | MEDIUM |
-| `PTT kargonuz beklemede. http://bit.ly/sahte-link adresinden ödeme yapın. IBAN TR12...` | HIGH |
 
 ## Sınırlamalar
 
@@ -501,7 +493,7 @@ Geliştirme sırasında manuel olarak test edilen senaryolar. Her satır farklı
 - **Arda AYDIN**
 - **Nursena ÖZKAN**
 
-BTK Akademi + Google Hackathon 2026 — Finans & E-Ticaret kategorisi için hazırlanmıştır.
+Bilgi Teknolojileri ve İletişim Kurumu + BTK Akademi + Google + Girişimcilik Vakfı Hackathon 2026 — Finans & E-Ticaret kategorisi için hazırlanmıştır.
 
 ## Lisans
 
